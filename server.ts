@@ -83,7 +83,12 @@ async function startServer() {
               responseModalities: [Modality.AUDIO],
               translationConfig: {
                 targetLanguageCode: targetLang,
-                echoTargetLanguage: false
+                echoTargetLanguage: true
+              },
+              realtimeInputConfig: {
+                automaticActivityDetection: {
+                  disabled: false,
+                },
               },
               inputAudioTranscription: {},
               outputAudioTranscription: {},
@@ -118,6 +123,9 @@ async function startServer() {
                 }
                 if (message.serverContent?.outputTranscription?.text) {
                   outMsg.outputTranscription = message.serverContent.outputTranscription.text;
+                }
+                if (message.serverContent?.turnComplete) {
+                  outMsg.turnComplete = true;
                 }
                 
                 if (Object.keys(outMsg).length > 0) {

@@ -25,6 +25,12 @@ export default function App() {
   
   const [foreignerText, setForeignerText] = useState('');
   const [userText, setUserText] = useState('');
+  
+  const foreignerCompleteRef = useRef('');
+  const userCompleteRef = useRef('');
+  const foreignerPartialRef = useRef('');
+  const userPartialRef = useRef('');
+
   const [playingTTS, setPlayingTTS] = useState(false);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -32,6 +38,7 @@ export default function App() {
   const audioCtxRef = useRef<AudioContext | null>(null);
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const outCtxRef = useRef<AudioContext | null>(null);
+  const sessionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const getEnsureWs = () => {
     return new Promise<WebSocket>((resolve, reject) => {
@@ -77,18 +84,32 @@ export default function App() {
           
           if (msg.inputTranscription) {
             if (currentMic === 'foreigner') {
-              setForeignerText(msg.inputTranscription);
+              foreignerPartialRef.current = msg.inputTranscription;
             } else if (currentMic === 'user') {
-              setUserText(msg.inputTranscription);
+              userPartialRef.current = msg.inputTranscription;
             }
           }
           if (msg.outputTranscription) {
              if (currentMic === 'foreigner') {
-               setUserText(msg.outputTranscription);
+               userPartialRef.current = msg.outputTranscription;
              } else if (currentMic === 'user') {
-               setForeignerText(msg.outputTranscription);
+               foreignerPartialRef.current = msg.outputTranscription;
              }
           }
+          
+          if (msg.turnComplete) {
+            if (foreignerPartialRef.current) {
+              foreignerCompleteRef.current += (foreignerCompleteRef.current ? ' ' : '') + foreignerPartialRef.current;
+            }
+            if (userPartialRef.current) {
+              userCompleteRef.current += (userCompleteRef.current ? ' ' : '') + userPartialRef.current;
+            }
+            foreignerPartialRef.current = '';
+            userPartialRef.current = '';
+          }
+          
+          setForeignerText((foreignerCompleteRef.current + (foreignerCompleteRef.current && foreignerPartialRef.current ? ' ' : '') + foreignerPartialRef.current).trim());
+          setUserText((userCompleteRef.current + (userCompleteRef.current && userPartialRef.current ? ' ' : '') + userPartialRef.current).trim());
         } catch (e) {
           console.error("Error parsing WS message", e);
         }
@@ -125,8 +146,21 @@ export default function App() {
     setActiveMic(role);
     setForeignerText('');
     setUserText('');
+    foreignerCompleteRef.current = '';
+    userCompleteRef.current = '';
+    foreignerPartialRef.current = '';
+    userPartialRef.current = '';
+    
     resetAudioQueue();
     initOutCtx();
+
+    if (sessionTimeoutRef.current) {
+      clearTimeout(sessionTimeoutRef.current);
+    }
+    // 5분 자동 종료 타임아웃
+    sessionTimeoutRef.current = setTimeout(() => {
+      stopRecording();
+    }, 5 * 60 * 1000);
     
     try {
       const ws = await getEnsureWs();
@@ -179,6 +213,10 @@ export default function App() {
   };
 
   const stopRecording = () => {
+    if (sessionTimeoutRef.current) {
+      clearTimeout(sessionTimeoutRef.current);
+      sessionTimeoutRef.current = null;
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
