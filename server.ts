@@ -119,16 +119,16 @@ async function startServer() {
                   role: "user",
                   parts: [
                     {
-                      text: `You are a polite and accurate translator. Listen to the audio. 
-If the targetLanguageCode is "ko", translate the audio to polite Korean. 
-If the targetLanguageCode is not "ko" (e.g., "en", "ja"), translate the audio to that language politely.
+                      text: `You are an accurate translator. Listen to the audio. 
+If the targetLanguageCode is "ko", translate the audio to casually polite Korean. 
+If the targetLanguageCode is not "ko" (e.g., "en", "ja"), translate the audio to that language in a casually polite tone.
 Target Language Code: ${targetLang}
 
 Output your response strictly in the following format:
 TRANSCRIPTION:
 <the exact string of what was spoken in the audio>
 TRANSLATION:
-<the polite translated string>`
+<the casually polite translated string>`
                     },
                     {
                       inlineData: {
@@ -145,7 +145,7 @@ TRANSLATION:
             responseStream = await fetchWithBackoff(() => ai.models.generateContentStream({
               model: "gemini-3.5-flash",
               config: {
-                systemInstruction: `You are a polite translator. Translate the given text to ${targetLang} in a polite tone. Output ONLY the raw translated text, with no markdown, intro, or labels.`
+                systemInstruction: `You are an accurate translator. Translate the given text to ${targetLang} in a casually polite tone. Output ONLY the raw translated text, with no markdown, intro, or labels.`
               },
               contents: [
                 {
@@ -167,6 +167,37 @@ TRANSLATION:
           let finalTranscription = msg.type === "process_text" ? msg.text : "";
           let finalTranslation = "";
 
+          let lastTranslLength = 0;
+          let unprocessedTranslationBuffer = "";
+          let ttsPromise = Promise.resolve();
+
+          const queueTts = (textToSpeak: string) => {
+            ttsPromise = ttsPromise.then(async () => {
+              try {
+                const ttsStream = await fetchWithBackoff(() => ai.models.generateContentStream({
+                  model: "gemini-3.1-flash-tts-preview",
+                  contents: [{ parts: [{ text: textToSpeak }] }],
+                  config: {
+                    responseModalities: ["AUDIO"],
+                    speechConfig: {
+                      voiceConfig: {
+                        prebuiltVoiceConfig: { voiceName: role === 'foreigner' ? "Puck" : "Kore" },
+                      },
+                    },
+                  },
+                }));
+                for await (const chunk of ttsStream) {
+                  const base64Audio = chunk.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+                  if (base64Audio) {
+                    clientWs.send(JSON.stringify({ role, audio: base64Audio }));
+                  }
+                }
+              } catch (e: any) {
+                console.error("TTS Gen Error:", e);
+              }
+            });
+          };
+
           for await (const chunk of responseStream) {
             bufferStr += chunk.text;
             
@@ -177,48 +208,54 @@ TRANSLATION:
               const transcrMatch = bufferStr.match(/TRANSCRIPTION:\s*([\s\S]*?)(?=\nTRANSLATION:|$)/);
               const translMatch = bufferStr.match(/TRANSLATION:\s*([\s\S]*)$/);
               
-              if (transcrMatch) currTrans = transcrMatch[1].trim();
-              if (translMatch) currTransl = translMatch[1].trim();
+              if (transcrMatch) currTrans = transcrMatch[1];
+              if (translMatch) currTransl = translMatch[1];
             } else {
-              currTransl = bufferStr.trim();
+              currTransl = bufferStr;
             }
             
             finalTranscription = currTrans;
             finalTranslation = currTransl;
 
+            const newlyTranslated = currTransl.slice(lastTranslLength);
+            lastTranslLength = currTransl.length;
+            
+            if (newlyTranslated) {
+              unprocessedTranslationBuffer += newlyTranslated;
+              const boundaryRegex = /([.?!。！？]+)(?:\s+|\n+)/;
+              while (true) {
+                const match = boundaryRegex.exec(unprocessedTranslationBuffer);
+                if (match) {
+                  const splitIndex = match.index + match[1].length;
+                  const sentence = unprocessedTranslationBuffer.slice(0, splitIndex).trim();
+                  unprocessedTranslationBuffer = unprocessedTranslationBuffer.slice(splitIndex).trimStart();
+                  if (sentence) {
+                    queueTts(sentence);
+                  }
+                } else {
+                  break;
+                }
+              }
+            }
+
             clientWs.send(JSON.stringify({
               role,
-              inputTranscription: currTrans,
-              outputTranscription: currTransl,
+              inputTranscription: currTrans.trim(),
+              outputTranscription: currTransl.trim(),
               partial: true
             }));
           }
 
-          if (!finalTranslation) {
+          if (!finalTranslation.trim()) {
             clientWs.send(JSON.stringify({ error: "Could not translate audio", role, turnComplete: true }));
             return;
           }
 
-          // Generate TTS using gemini-3.1-flash-tts-preview
-          const ttsStream = await fetchWithBackoff(() => ai.models.generateContentStream({
-            model: "gemini-3.1-flash-tts-preview",
-            contents: [{ parts: [{ text: finalTranslation }] }],
-            config: {
-              responseModalities: ["AUDIO"],
-              speechConfig: {
-                voiceConfig: {
-                  prebuiltVoiceConfig: { voiceName: role === 'foreigner' ? "Puck" : "Kore" },
-                },
-              },
-            },
-          }));
-
-          for await (const chunk of ttsStream) {
-             const base64Audio = chunk.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-             if (base64Audio) {
-               clientWs.send(JSON.stringify({ role, audio: base64Audio }));
-             }
+          if (unprocessedTranslationBuffer.trim()) {
+            queueTts(unprocessedTranslationBuffer.trim());
           }
+
+          await ttsPromise;
           clientWs.send(JSON.stringify({ role, turnComplete: true }));
 
         } catch (e: any) {
