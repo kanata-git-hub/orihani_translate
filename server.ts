@@ -8,7 +8,18 @@ import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
 
 dotenv.config();
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let aiClient: GoogleGenAI | null = null;
+
+function getAi(): GoogleGenAI {
+  if (!aiClient) {
+    const key = process.env.GEMINI_API_KEY;
+    if (!key) {
+      console.warn("GEMINI_API_KEY is missing! AI features will fail.");
+    }
+    aiClient = new GoogleGenAI({ apiKey: key || "dummy_key_to_prevent_crash" });
+  }
+  return aiClient;
+}
 
 // Exponential backoff helper
 async function fetchWithBackoff(fn: () => Promise<any>, retries = 3, delayMs = 1000) {
@@ -53,6 +64,7 @@ async function startServer() {
         const targetLang = msg.targetLanguageCode || "ko";
         
         try {
+          const ai = getAi();
           session = await ai.live.connect({
             model: "gemini-3.5-live-translate-preview",
             config: {
@@ -128,6 +140,7 @@ async function startServer() {
   app.post("/api/tts", async (req, res) => {
     try {
       const { text } = req.body;
+      const ai = getAi();
       const interaction = await fetchWithBackoff(() => ai.interactions.create({
         model: 'gemini-3.1-flash-tts-preview',
         input: text,
