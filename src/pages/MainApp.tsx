@@ -17,6 +17,11 @@ export default function App() {
   };
   
   const [activeMic, setActiveMic] = useState<'foreigner' | 'user' | null>(null);
+  const activeMicRef = useRef(activeMic);
+  
+  useEffect(() => {
+    activeMicRef.current = activeMic;
+  }, [activeMic]);
   
   const [foreignerText, setForeignerText] = useState('');
   const [userText, setUserText] = useState('');
@@ -57,17 +62,19 @@ export default function App() {
         resetAudioQueue();
       }
       
+      const currentMic = activeMicRef.current;
+      
       if (msg.inputTranscription) {
-        if (activeMic === 'foreigner') {
+        if (currentMic === 'foreigner') {
           setForeignerText(msg.inputTranscription);
-        } else if (activeMic === 'user') {
+        } else if (currentMic === 'user') {
           setUserText(msg.inputTranscription);
         }
       }
       if (msg.outputTranscription) {
-         if (activeMic === 'foreigner') {
+         if (currentMic === 'foreigner') {
            setUserText(msg.outputTranscription);
-         } else if (activeMic === 'user') {
+         } else if (currentMic === 'user') {
            setForeignerText(msg.outputTranscription);
          }
       }
@@ -76,7 +83,7 @@ export default function App() {
     return () => {
       ws.close();
     };
-  }, [activeMic]);
+  }, []);
 
   const initOutCtx = () => {
     if (!outCtxRef.current) {
