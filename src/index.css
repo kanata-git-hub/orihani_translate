@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+@font-face {
+  font-family: 'KyoboHandwriting';
+  src: url('./KyoboHandwriting2024psw.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@theme {
+  --font-sans: 'KyoboHandwriting', ui-sans-serif, system-ui, sans-serif;
+}

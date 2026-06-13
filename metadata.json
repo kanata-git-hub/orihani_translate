@@ -1,0 +1,6 @@
+{
+  "name": "Live Bilateral Translator",
+  "description": "Accessibility-focused real-time translation app using Gemini Live.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
