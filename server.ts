@@ -84,6 +84,8 @@ async function startServer() {
               translationConfig: {
                 targetLanguageCode: targetLang,
               },
+              inputAudioTranscription: {},
+              outputAudioTranscription: {},
             },
             callbacks: {
               onmessage: (message: LiveServerMessage) => {
@@ -117,20 +119,14 @@ async function startServer() {
           
           sessions.set(clientWs, { session: newSession, queue: [], connected: true });
           
+          newSession.sendRealtimeInput({
+            audio: {
+              mimeType: "audio/pcm;rate=16000",
+              data: msg.audio
+            }
+          });
+          
           newSession.sendClientContent({
-            turns: [
-              {
-                role: "user",
-                parts: [
-                  {
-                    inlineData: {
-                      mimeType: "audio/pcm;rate=16000",
-                      data: msg.audio
-                    }
-                  }
-                ]
-              }
-            ],
             turnComplete: true
           });
           
