@@ -83,7 +83,7 @@ async function startServer() {
               responseModalities: [Modality.AUDIO],
               translationConfig: {
                 targetLanguageCode: targetLang,
-                echoTargetLanguage: true
+                echoTargetLanguage: false
               },
               inputAudioTranscription: {},
               outputAudioTranscription: {},

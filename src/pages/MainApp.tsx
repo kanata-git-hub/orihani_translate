@@ -33,55 +33,81 @@ export default function App() {
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const outCtxRef = useRef<AudioContext | null>(null);
 
-  useEffect(() => {
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${protocol}//${window.location.host}/live`;
-    const ws = new WebSocket(wsUrl);
-    wsRef.current = ws;
-
-    ws.onmessage = (event) => {
-      const msg = JSON.parse(event.data);
-      console.log("WS message:", msg);
-      if (msg.error) {
-        console.error("Live API Error:", msg.error);
-        alert("Live API Error: " + msg.error);
-        stopRecording();
+  const getEnsureWs = () => {
+    return new Promise<WebSocket>((resolve, reject) => {
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        resolve(wsRef.current);
         return;
       }
-      if (msg.audio) {
-        if (!outCtxRef.current) {
-          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-          outCtxRef.current = new AudioContextClass({ sampleRate: 24000 });
-        }
-        if (outCtxRef.current.state === 'suspended') {
-          outCtxRef.current.resume();
-        }
-        playAudioChunk(outCtxRef.current, msg.audio);
-      }
-      if (msg.interrupted) {
-        resetAudioQueue();
-      }
       
-      const currentMic = activeMicRef.current;
-      
-      if (msg.inputTranscription) {
-        if (currentMic === 'foreigner') {
-          setForeignerText(msg.inputTranscription);
-        } else if (currentMic === 'user') {
-          setUserText(msg.inputTranscription);
-        }
-      }
-      if (msg.outputTranscription) {
-         if (currentMic === 'foreigner') {
-           setUserText(msg.outputTranscription);
-         } else if (currentMic === 'user') {
-           setForeignerText(msg.outputTranscription);
-         }
-      }
-    };
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${protocol}//${window.location.host}/live`;
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
 
+      ws.onopen = () => resolve(ws);
+      ws.onerror = (e) => {
+        console.error("WS error", e);
+        reject(e);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          if (msg.error) {
+            console.error("Live API Error:", msg.error);
+            stopRecording();
+            return;
+          }
+          if (msg.audio) {
+            if (!outCtxRef.current) {
+              const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+              outCtxRef.current = new AudioContextClass({ sampleRate: 24000 });
+            }
+            if (outCtxRef.current.state === 'suspended') {
+              outCtxRef.current.resume();
+            }
+            playAudioChunk(outCtxRef.current, msg.audio);
+          }
+          if (msg.interrupted) {
+            resetAudioQueue();
+          }
+          
+          const currentMic = activeMicRef.current;
+          
+          if (msg.inputTranscription) {
+            if (currentMic === 'foreigner') {
+              setForeignerText(msg.inputTranscription);
+            } else if (currentMic === 'user') {
+              setUserText(msg.inputTranscription);
+            }
+          }
+          if (msg.outputTranscription) {
+             if (currentMic === 'foreigner') {
+               setUserText(msg.outputTranscription);
+             } else if (currentMic === 'user') {
+               setForeignerText(msg.outputTranscription);
+             }
+          }
+        } catch (e) {
+          console.error("Error parsing WS message", e);
+        }
+      };
+      
+      ws.onclose = () => {
+        if (wsRef.current === ws) {
+          wsRef.current = null;
+        }
+      };
+    });
+  };
+
+  useEffect(() => {
+    getEnsureWs().catch(console.error);
     return () => {
-      ws.close();
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
     };
   }, []);
 
@@ -102,14 +128,15 @@ export default function App() {
     resetAudioQueue();
     initOutCtx();
     
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ 
-        type: 'start', 
-        targetLanguageCode: role === 'foreigner' ? 'ko' : foreignerLang 
-      }));
-    }
-
     try {
+      const ws = await getEnsureWs();
+      if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ 
+          type: 'start', 
+          targetLanguageCode: role === 'foreigner' ? 'ko' : foreignerLang 
+        }));
+      }
+
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
       const audioCtx = new AudioContextClass();
       audioCtxRef.current = audioCtx;
@@ -125,13 +152,17 @@ export default function App() {
       const processor = audioCtx.createScriptProcessor(4096, 1, 1);
       processorRef.current = processor;
       
+      const gainNode = audioCtx.createGain();
+      gainNode.gain.value = 0; // mute the mic from playing back on the speaker
+      
       source.connect(processor);
-      processor.connect(audioCtx.destination);
+      processor.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
       
       processor.onaudioprocess = (e) => {
-        if (wsRef.current?.readyState === WebSocket.OPEN) {
+        if (ws.readyState === WebSocket.OPEN) {
           const base64 = pcmToBase64(e.inputBuffer.getChannelData(0), audioCtx.sampleRate);
-          wsRef.current.send(JSON.stringify({ type: 'audio', audio: base64 }));
+          ws.send(JSON.stringify({ type: 'audio', audio: base64 }));
         }
       };
     } catch (err) {

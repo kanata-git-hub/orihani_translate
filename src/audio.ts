@@ -47,8 +47,8 @@ export function playAudioChunk(context: AudioContext, base64Audio: string) {
     source.buffer = audioBuffer;
     source.connect(context.destination);
     
-    if (nextStartTime < context.currentTime) {
-      nextStartTime = context.currentTime + 0.1; // minor buffer
+    if (nextStartTime < context.currentTime + 0.1) {
+      nextStartTime = context.currentTime + 0.2; // Jitter buffer
     }
     source.start(nextStartTime);
     nextStartTime += audioBuffer.duration;
