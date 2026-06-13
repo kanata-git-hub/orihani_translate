@@ -63,9 +63,15 @@ async function startServer() {
         return;
       }
 
-      const state = sessions.get(clientWs);
+      const state = sessions.get(clientWs) || { pcmBuffer: [] };
+      sessions.set(clientWs, state);
 
-      if (msg.type === "process_audio" && msg.audio) {
+      if (msg.type === "audio_chunk" && msg.audio) {
+        state.pcmBuffer.push(Buffer.from(msg.audio, 'base64'));
+        return;
+      }
+
+      if (msg.type === "process_text" || msg.type === "process_audio") {
         if (state?.session) {
           state.session = null;
         }
@@ -73,72 +79,151 @@ async function startServer() {
         const targetLang = msg.targetLanguageCode || "ko";
         const role = msg.role;
         
-        sessions.set(clientWs, { session: null, queue: [], connected: false });
-        
         try {
           const ai = getAi();
-          const newSession = await ai.live.connect({
-            model: "gemini-3.5-live-translate-preview",
-            config: {
-              responseModalities: [Modality.AUDIO],
-              translationConfig: {
-                targetLanguageCode: targetLang,
-              },
-              inputAudioTranscription: {},
-              outputAudioTranscription: {},
-            },
-            callbacks: {
-              onmessage: (message: LiveServerMessage) => {
-                const outMsg: any = { role };
-                
-                if (message.serverContent?.modelTurn?.parts) {
-                  const audioPart = message.serverContent.modelTurn.parts.find(p => p.inlineData && p.inlineData.data);
-                  if (audioPart) {
-                    outMsg.audio = audioPart.inlineData.data;
-                  }
-                }
-                if (message.serverContent?.interrupted) {
-                  outMsg.interrupted = true;
-                }
-                if (message.serverContent?.inputTranscription?.text) {
-                  outMsg.inputTranscription = message.serverContent.inputTranscription.text;
-                }
-                if (message.serverContent?.outputTranscription?.text) {
-                  outMsg.outputTranscription = message.serverContent.outputTranscription.text;
-                }
-                if (message.serverContent?.turnComplete) {
-                  outMsg.turnComplete = true;
-                }
-                
-                if (Object.keys(outMsg).length > 1) { // More than just 'role'
-                  clientWs.send(JSON.stringify(outMsg));
-                }
-              },
-            },
-          });
           
-          sessions.set(clientWs, { session: newSession, queue: [], connected: true });
+          let responseStream;
           
-          newSession.sendClientContent({
-            turns: [
-              {
-                role: "user",
-                parts: [
-                  {
-                    inlineData: {
-                      mimeType: "audio/pcm;rate=16000",
-                      data: msg.audio
+          if (msg.type === "process_audio") {
+            let pcmBuffer: Buffer;
+            if (msg.audio) {
+               pcmBuffer = Buffer.from(msg.audio, 'base64');
+            } else if (state.pcmBuffer.length > 0) {
+               pcmBuffer = Buffer.concat(state.pcmBuffer);
+               state.pcmBuffer = []; // reset
+            } else {
+               return;
+            }
+            const wavHeader = Buffer.alloc(44);
+            wavHeader.write("RIFF", 0);
+            wavHeader.writeUInt32LE(36 + pcmBuffer.length, 4);
+            wavHeader.write("WAVE", 8);
+            wavHeader.write("fmt ", 12);
+            wavHeader.writeUInt32LE(16, 16); // Subchunk1Size (16 for PCM)
+            wavHeader.writeUInt16LE(1, 20); // AudioFormat (1 for PCM)
+            wavHeader.writeUInt16LE(1, 22); // NumChannels
+            wavHeader.writeUInt32LE(16000, 24); // SampleRate
+            wavHeader.writeUInt32LE(16000 * 2, 28); // ByteRate
+            wavHeader.writeUInt16LE(2, 32); // BlockAlign
+            wavHeader.writeUInt16LE(16, 34); // BitsPerSample
+            wavHeader.write("data", 36);
+            wavHeader.writeUInt32LE(pcmBuffer.length, 40);
+
+            const wavBuffer = Buffer.concat([wavHeader, pcmBuffer]);
+            const wavBase64 = wavBuffer.toString('base64');
+
+            responseStream = await fetchWithBackoff(() => ai.models.generateContentStream({
+              model: "gemini-3.5-flash",
+              contents: [
+                {
+                  role: "user",
+                  parts: [
+                    {
+                      text: `You are a polite and accurate translator. Listen to the audio. 
+If the targetLanguageCode is "ko", translate the audio to polite Korean. 
+If the targetLanguageCode is not "ko" (e.g., "en", "ja"), translate the audio to that language politely.
+Target Language Code: ${targetLang}
+
+Output your response strictly in the following format:
+TRANSCRIPTION:
+<the exact string of what was spoken in the audio>
+TRANSLATION:
+<the polite translated string>`
+                    },
+                    {
+                      inlineData: {
+                        mimeType: "audio/wav",
+                        data: wavBase64
+                      }
                     }
-                  }
-                ]
-              }
-            ],
-            turnComplete: true
-          });
-          
+                  ]
+                }
+              ]
+            }));
+          } else {
+            // Processing text directly
+            responseStream = await fetchWithBackoff(() => ai.models.generateContentStream({
+              model: "gemini-3.5-flash",
+              config: {
+                systemInstruction: `You are a polite translator. Translate the given text to ${targetLang} in a polite tone. Output ONLY the raw translated text, with no markdown, intro, or labels.`
+              },
+              contents: [
+                {
+                  role: "user",
+                  parts: [{ text: msg.text }]
+                }
+              ]
+            }));
+            
+            // immediately echo back the input transcription
+            clientWs.send(JSON.stringify({
+              role,
+              inputTranscription: msg.text,
+              partial: true
+            }));
+          }
+
+          let bufferStr = "";
+          let finalTranscription = msg.type === "process_text" ? msg.text : "";
+          let finalTranslation = "";
+
+          for await (const chunk of responseStream) {
+            bufferStr += chunk.text;
+            
+            let currTrans = finalTranscription;
+            let currTransl = finalTranslation;
+
+            if (msg.type === "process_audio") {
+              const transcrMatch = bufferStr.match(/TRANSCRIPTION:\s*([\s\S]*?)(?=\nTRANSLATION:|$)/);
+              const translMatch = bufferStr.match(/TRANSLATION:\s*([\s\S]*)$/);
+              
+              if (transcrMatch) currTrans = transcrMatch[1].trim();
+              if (translMatch) currTransl = translMatch[1].trim();
+            } else {
+              currTransl = bufferStr.trim();
+            }
+            
+            finalTranscription = currTrans;
+            finalTranslation = currTransl;
+
+            clientWs.send(JSON.stringify({
+              role,
+              inputTranscription: currTrans,
+              outputTranscription: currTransl,
+              partial: true
+            }));
+          }
+
+          if (!finalTranslation) {
+            clientWs.send(JSON.stringify({ error: "Could not translate audio", role, turnComplete: true }));
+            return;
+          }
+
+          // Generate TTS using gemini-3.1-flash-tts-preview
+          const ttsStream = await fetchWithBackoff(() => ai.models.generateContentStream({
+            model: "gemini-3.1-flash-tts-preview",
+            contents: [{ parts: [{ text: finalTranslation }] }],
+            config: {
+              responseModalities: ["AUDIO"],
+              speechConfig: {
+                voiceConfig: {
+                  prebuiltVoiceConfig: { voiceName: role === 'foreigner' ? "Puck" : "Kore" },
+                },
+              },
+            },
+          }));
+
+          for await (const chunk of ttsStream) {
+             const base64Audio = chunk.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+             if (base64Audio) {
+               clientWs.send(JSON.stringify({ role, audio: base64Audio }));
+             }
+          }
+          clientWs.send(JSON.stringify({ role, turnComplete: true }));
+
         } catch (e: any) {
-          console.error("Live API Error:", e);
-          clientWs.send(JSON.stringify({ error: e.message, role }));
+          console.error("Pipeline Error:", e);
+          clientWs.send(JSON.stringify({ error: e.message, role, turnComplete: true }));
         }
       }
     });

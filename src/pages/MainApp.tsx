@@ -28,17 +28,16 @@ export default function App() {
   
   const foreignerCompleteRef = useRef('');
   const userCompleteRef = useRef('');
+  const foreignerPendingRef = useRef('');
+  const userPendingRef = useRef('');
 
   const [playingTTS, setPlayingTTS] = useState(false);
   const [processingRole, setProcessingRole] = useState<'foreigner' | 'user' | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
-  const outCtxRef = useRef<AudioContext | null>(null);
+  const recognitionRef = useRef<any>(null);
   const sessionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const recordedPcmRef = useRef<Float32Array[]>([]);
+  const outCtxRef = useRef<AudioContext | null>(null);
 
   const getEnsureWs = () => {
     return new Promise<WebSocket>((resolve, reject) => {
@@ -82,27 +81,46 @@ export default function App() {
           
           const currentMic = msg.role || activeMicRef.current;
           
-          if (msg.inputTranscription) {
-            if (currentMic === 'foreigner') {
-              foreignerCompleteRef.current += (foreignerCompleteRef.current ? ' ' : '') + msg.inputTranscription;
-            } else if (currentMic === 'user') {
-              userCompleteRef.current += (userCompleteRef.current ? ' ' : '') + msg.inputTranscription;
-            }
-          }
-          if (msg.outputTranscription) {
-             if (currentMic === 'foreigner') {
-               userCompleteRef.current += (userCompleteRef.current ? ' ' : '') + msg.outputTranscription;
-             } else if (currentMic === 'user') {
-               foreignerCompleteRef.current += (foreignerCompleteRef.current ? ' ' : '') + msg.outputTranscription;
+          if (msg.partial) {
+             if (msg.inputTranscription) {
+               if (currentMic === 'foreigner') foreignerPendingRef.current = msg.inputTranscription;
+               else userPendingRef.current = msg.inputTranscription;
+             }
+             if (msg.outputTranscription) {
+               if (currentMic === 'foreigner') userPendingRef.current = msg.outputTranscription;
+               else foreignerPendingRef.current = msg.outputTranscription;
+             }
+          } else if (msg.turnComplete) {
+             // turn is done, move pending to complete
+             if (foreignerPendingRef.current) {
+                foreignerCompleteRef.current += (foreignerCompleteRef.current ? ' ' : '') + foreignerPendingRef.current;
+                foreignerPendingRef.current = '';
+             }
+             if (userPendingRef.current) {
+                userCompleteRef.current += (userCompleteRef.current ? ' ' : '') + userPendingRef.current;
+                userPendingRef.current = '';
+             }
+             setProcessingRole(null);
+          } else {
+             // legacy single-shot WS event
+             if (msg.inputTranscription) {
+               if (currentMic === 'foreigner') {
+                 foreignerCompleteRef.current += (foreignerCompleteRef.current ? ' ' : '') + msg.inputTranscription;
+               } else if (currentMic === 'user') {
+                 userCompleteRef.current += (userCompleteRef.current ? ' ' : '') + msg.inputTranscription;
+               }
+             }
+             if (msg.outputTranscription) {
+                if (currentMic === 'foreigner') {
+                  userCompleteRef.current += (userCompleteRef.current ? ' ' : '') + msg.outputTranscription;
+                } else if (currentMic === 'user') {
+                  foreignerCompleteRef.current += (foreignerCompleteRef.current ? ' ' : '') + msg.outputTranscription;
+                }
              }
           }
           
-          if (msg.turnComplete) {
-             setProcessingRole(null);
-          }
-          
-          setForeignerText(foreignerCompleteRef.current.trim());
-          setUserText(userCompleteRef.current.trim());
+          setForeignerText((foreignerCompleteRef.current + " " + foreignerPendingRef.current).trim());
+          setUserText((userCompleteRef.current + " " + userPendingRef.current).trim());
         } catch (e) {
           console.error("Error parsing WS message", e);
         }
@@ -121,6 +139,9 @@ export default function App() {
     return () => {
       if (wsRef.current) {
         wsRef.current.close();
+      }
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
       }
     };
   }, []);
@@ -141,6 +162,8 @@ export default function App() {
     setUserText('');
     foreignerCompleteRef.current = '';
     userCompleteRef.current = '';
+    foreignerPendingRef.current = '';
+    userPendingRef.current = '';
     
     resetAudioQueue();
     initOutCtx();
@@ -156,43 +179,59 @@ export default function App() {
     try {
       await getEnsureWs();
 
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const audioCtx = new AudioContextClass({ sampleRate: 16000 });
-      audioCtxRef.current = audioCtx;
-      
-      if (audioCtx.state === 'suspended') {
-        audioCtx.resume();
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        alert("현재 브라우저에서 음성 인식 API를 지원하지 않습니다.");
+        setActiveMic(null);
+        return;
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      streamRef.current = stream;
-      recordedPcmRef.current = [];
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+      }
+
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
       
-      const source = audioCtx.createMediaStreamSource(stream);
-      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
-      processorRef.current = processor;
-      
-      const gainNode = audioCtx.createGain();
-      gainNode.gain.value = 0; // mute the mic from playing back on the speaker
-      
-      source.connect(processor);
-      processor.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-      
-      processor.onaudioprocess = (e) => {
-        recordedPcmRef.current.push(new Float32Array(e.inputBuffer.getChannelData(0)));
-      };
-    } catch (err) {
-        if (err instanceof Error) {
-          if (err.name === 'NotAllowedError' || err.message.includes('Permission denied')) {
-            alert('마이크 접근이 거부되었습니다. 브라우저의 마이크 권한을 허용해주세요.');
-          } else {
-            alert('마이크 초기화 실패: ' + err.message);
-          }
+      // Map standard ISO code to BCP-47 for foreignerLang
+      let recLang = 'ko-KR';
+      if (role === 'foreigner') {
+        const langMap: Record<string, string> = { "ja": "ja-JP", "en": "en-US", "es": "es-ES", "zh": "zh-CN" };
+        recLang = langMap[foreignerLang] || foreignerLang;
+      }
+      recognition.lang = recLang;
+
+      recognition.onresult = (event: any) => {
+        let fullTranscript = '';
+        for (let i = 0; i < event.results.length; ++i) {
+          fullTranscript += event.results[i][0].transcript;
         }
+
+        if (role === 'foreigner') {
+          foreignerPendingRef.current = fullTranscript;
+        } else {
+          userPendingRef.current = fullTranscript;
+        }
+        
+        setForeignerText((foreignerCompleteRef.current + " " + foreignerPendingRef.current).trim());
+        setUserText((userCompleteRef.current + " " + userPendingRef.current).trim());
+      };
+
+      recognition.onerror = (event: any) => {
+        console.error("Speech recognition error", event.error);
+        if (event.error === 'not-allowed') {
+           alert('마이크 접근이 거부되었습니다. 브라우저의 마이크 권한을 허용해주세요.');
+           setActiveMic(null);
+        }
+      };
+
+      recognition.start();
+      recognitionRef.current = recognition;
+    } catch (err) {
         console.error('Failed to access microphone', err);
         setActiveMic(null);
-      }
+    }
   };
 
   const stopRecording = () => {
@@ -200,39 +239,32 @@ export default function App() {
       clearTimeout(sessionTimeoutRef.current);
       sessionTimeoutRef.current = null;
     }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
+    
+    if (recognitionRef.current) {
+      recognitionRef.current.stop();
+      recognitionRef.current = null;
     }
     
-    let combinedBase64 = null;
-    if (recordedPcmRef.current.length > 0 && audioCtxRef.current) {
-       const totalLength = recordedPcmRef.current.reduce((acc, val) => acc + val.length, 0);
-       const combined = new Float32Array(totalLength);
-       let offset = 0;
-       for (const chunk of recordedPcmRef.current) {
-         combined.set(chunk, offset);
-         offset += chunk.length;
-       }
-       combinedBase64 = pcmToBase64(combined, audioCtxRef.current.sampleRate);
-       recordedPcmRef.current = [];
-    }
-
-    if (processorRef.current && audioCtxRef.current) {
-      processorRef.current.disconnect();
-      audioCtxRef.current.close().catch(console.error);
-      processorRef.current = null;
-      audioCtxRef.current = null;
-    }
-    
-    if (combinedBase64 && wsRef.current?.readyState === WebSocket.OPEN && activeMic) {
+    if (wsRef.current?.readyState === WebSocket.OPEN && activeMic) {
       setProcessingRole(activeMic);
-      wsRef.current.send(JSON.stringify({ 
-        type: 'process_audio',
-        role: activeMic,
-        audio: combinedBase64,
-        targetLanguageCode: activeMic === 'foreigner' ? 'ko' : foreignerLang
-      }));
+      
+      const currentTurnText = activeMic === 'foreigner' 
+        ? foreignerPendingRef.current.trim() 
+        : userPendingRef.current.trim();
+        
+      if (currentTurnText) {
+        if (activeMic === 'foreigner') foreignerPendingRef.current = '';
+        else userPendingRef.current = '';
+
+        wsRef.current.send(JSON.stringify({ 
+          type: 'process_text',
+          role: activeMic,
+          text: currentTurnText,
+          targetLanguageCode: activeMic === 'foreigner' ? 'ko' : foreignerLang
+        }));
+      } else {
+        setProcessingRole(null);
+      }
     }
     setActiveMic(null);
   };
