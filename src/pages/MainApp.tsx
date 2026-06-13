@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Mic, MicOff, Languages, Volume2, Loader2, LogOut, Shield } from 'lucide-react';
+import { Mic, Square, Languages, Volume2, Loader2, LogOut, Shield } from 'lucide-react';
 import { pcmToBase64, playAudioChunk, resetAudioQueue } from '../audio';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { logout } from '../lib/firebaseUtils';
@@ -45,7 +45,8 @@ export default function App() {
       }
       if (msg.audio) {
         if (!outCtxRef.current) {
-          outCtxRef.current = new AudioContext({ sampleRate: 24000 });
+          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+          outCtxRef.current = new AudioContextClass({ sampleRate: 24000 });
         }
         if (outCtxRef.current.state === 'suspended') {
           outCtxRef.current.resume();
@@ -77,11 +78,22 @@ export default function App() {
     };
   }, [activeMic]);
 
+  const initOutCtx = () => {
+    if (!outCtxRef.current) {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      outCtxRef.current = new AudioContextClass({ sampleRate: 24000 });
+    }
+    if (outCtxRef.current.state === 'suspended') {
+      outCtxRef.current.resume();
+    }
+  };
+
   const startRecording = async (role: 'foreigner' | 'user') => {
     setActiveMic(role);
     setForeignerText('');
     setUserText('');
     resetAudioQueue();
+    initOutCtx();
     
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({ 
@@ -91,11 +103,16 @@ export default function App() {
     }
 
     try {
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const audioCtx = new AudioContextClass();
+      audioCtxRef.current = audioCtx;
+      
+      if (audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
-      
-      const audioCtx = new AudioContext({ sampleRate: 16000 });
-      audioCtxRef.current = audioCtx;
       
       const source = audioCtx.createMediaStreamSource(stream);
       const processor = audioCtx.createScriptProcessor(4096, 1, 1);
@@ -106,16 +123,16 @@ export default function App() {
       
       processor.onaudioprocess = (e) => {
         if (wsRef.current?.readyState === WebSocket.OPEN) {
-          const base64 = pcmToBase64(e.inputBuffer.getChannelData(0));
+          const base64 = pcmToBase64(e.inputBuffer.getChannelData(0), audioCtx.sampleRate);
           wsRef.current.send(JSON.stringify({ type: 'audio', audio: base64 }));
         }
       };
     } catch (err) {
         if (err instanceof Error) {
           if (err.name === 'NotAllowedError' || err.message.includes('Permission denied')) {
-            alert('Microphone access was denied. Please allow microphone permissions or open the application in a new tab to use the translation features.');
+            alert('마이크 접근이 거부되었습니다. 브라우저의 마이크 권한을 허용해주세요. (카카오톡 등 인앱 브라우저라면 우측 하단/상단 메뉴를 눌러 Safari 또는 Chrome으로 열어주세요.)');
           } else {
-            alert('Failed to access microphone: ' + err.message);
+            alert('마이크 초기화 실패: ' + err.message + '\n\n카카오톡 등 인앱 브라우저라면 Safari나 Chrome으로 앱을 열어주세요.');
           }
         }
         console.error('Failed to access microphone', err);
@@ -164,6 +181,7 @@ export default function App() {
     if (!text) return;
     setPlayingTTS(true);
     resetAudioQueue();
+    initOutCtx();
     try {
       const res = await fetch('/api/tts', {
         method: 'POST',
@@ -173,7 +191,8 @@ export default function App() {
       const data = await res.json();
       if (data.audio) {
         if (!outCtxRef.current) {
-          outCtxRef.current = new AudioContext({ sampleRate: 24000 });
+          const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+          outCtxRef.current = new AudioContextClass({ sampleRate: 24000 });
         }
         if (outCtxRef.current.state === 'suspended') {
           outCtxRef.current.resume();
@@ -252,7 +271,7 @@ export default function App() {
                 : 'bg-[#ffcd4a] text-[#552c24] hover:scale-105'
             }`}
           >
-            {activeMic === 'foreigner' ? <MicOff size={28} /> : <Mic size={28} />}
+            {activeMic === 'foreigner' ? <Square fill="currentColor" size={24} /> : <Mic size={28} />}
           </button>
         </div>
       </div>
@@ -272,7 +291,7 @@ export default function App() {
                 : 'bg-[#552c24] text-white hover:scale-105'
             }`}
           >
-            {activeMic === 'user' ? <MicOff size={28} /> : <Mic size={28} />}
+            {activeMic === 'user' ? <Square fill="currentColor" size={24} /> : <Mic size={28} />}
           </button>
         </div>
 

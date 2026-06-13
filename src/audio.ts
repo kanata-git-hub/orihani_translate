@@ -1,8 +1,20 @@
-export function pcmToBase64(pcmData: Float32Array): string {
-  const buffer = new ArrayBuffer(pcmData.length * 2);
+export function pcmToBase64(pcmData: Float32Array, sampleRate: number): string {
+  // Downsample to 16000Hz if needed
+  const targetRate = 16000;
+  let resampledData = pcmData;
+  if (sampleRate !== targetRate) {
+    const ratio = sampleRate / targetRate;
+    const newLength = Math.round(pcmData.length / ratio);
+    resampledData = new Float32Array(newLength);
+    for (let i = 0; i < newLength; i++) {
+       resampledData[i] = pcmData[Math.round(i * ratio)];
+    }
+  }
+
+  const buffer = new ArrayBuffer(resampledData.length * 2);
   const view = new DataView(buffer);
-  for (let i = 0; i < pcmData.length; i++) {
-    const s = Math.max(-1, Math.min(1, pcmData[i]));
+  for (let i = 0; i < resampledData.length; i++) {
+    const s = Math.max(-1, Math.min(1, resampledData[i]));
     view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
   }
   let binary = "";
