@@ -1,5 +1,5 @@
 export function pcmToBase64(pcmData: Float32Array, sampleRate: number): string {
-  // Downsample to 16000Hz if needed
+  // Downsample to 16000Hz if needed using linear interpolation
   const targetRate = 16000;
   let resampledData = pcmData;
   if (sampleRate !== targetRate) {
@@ -7,7 +7,12 @@ export function pcmToBase64(pcmData: Float32Array, sampleRate: number): string {
     const newLength = Math.round(pcmData.length / ratio);
     resampledData = new Float32Array(newLength);
     for (let i = 0; i < newLength; i++) {
-       resampledData[i] = pcmData[Math.round(i * ratio)];
+       const pos = i * ratio;
+       const index = Math.floor(pos);
+       const weight = pos - index;
+       const v0 = pcmData[index];
+       const v1 = index + 1 < pcmData.length ? pcmData[index + 1] : v0;
+       resampledData[i] = v0 + weight * (v1 - v0);
     }
   }
 
@@ -47,8 +52,9 @@ export function playAudioChunk(context: AudioContext, base64Audio: string) {
     source.buffer = audioBuffer;
     source.connect(context.destination);
     
-    if (nextStartTime < context.currentTime + 0.1) {
-      nextStartTime = context.currentTime + 0.2; // Jitter buffer
+    // Play with minor jitter buffer to prevent choppiness
+    if (nextStartTime === 0 || nextStartTime < context.currentTime + 0.05) {
+      nextStartTime = context.currentTime + 0.15;
     }
     source.start(nextStartTime);
     nextStartTime += audioBuffer.duration;
