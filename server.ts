@@ -4,7 +4,8 @@ import path from "path";
 import http from "http";
 import dotenv from "dotenv";
 import { WebSocketServer, WebSocket } from "ws";
-import { GoogleGenAI, LiveServerMessage, Modality } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
+import type { LiveServerMessage } from "@google/genai";
 
 dotenv.config();
 
@@ -68,7 +69,7 @@ async function startServer() {
           session = await ai.live.connect({
             model: "gemini-3.5-live-translate-preview",
             config: {
-              responseModalities: [Modality.AUDIO],
+              responseModalities: ["AUDIO"],
               translationConfig: {
                 targetLanguageCode: targetLang,
                 echoTargetLanguage: true
