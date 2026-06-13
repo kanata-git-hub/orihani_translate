@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 import http from "http";
 import dotenv from "dotenv";
 import { WebSocketServer, WebSocket } from "ws";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Modality } from "@google/genai";
 import type { LiveServerMessage } from "@google/genai";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -53,6 +53,8 @@ async function startServer() {
   wss.on("connection", (clientWs, req) => {
     let session: any = null;
 
+    let isClosing = false;
+    
     clientWs.on("message", async (data) => {
       let msg: any;
       try {
@@ -61,19 +63,24 @@ async function startServer() {
         return;
       }
 
+      const state = sessions.get(clientWs);
+
       if (msg.type === "start") {
-        if (session) {
-          session = null;
+        if (state?.session) {
+          state.session = null;
         }
         
         const targetLang = msg.targetLanguageCode || "ko";
         
+        // initialize state
+        sessions.set(clientWs, { session: null, queue: [], connected: false });
+        
         try {
           const ai = getAi();
-          session = await ai.live.connect({
+          const newSession = await ai.live.connect({
             model: "gemini-3.5-live-translate-preview",
             config: {
-              responseModalities: ["AUDIO"],
+              responseModalities: [Modality.AUDIO],
               translationConfig: {
                 targetLanguageCode: targetLang,
                 echoTargetLanguage: true
@@ -83,12 +90,24 @@ async function startServer() {
             },
             callbacks: {
               onmessage: (message: LiveServerMessage) => {
+                // VERBOSE LOGGING
+                console.log("LIVE API MSG:", JSON.stringify(message, null, 2));
+                try {
+                  clientWs.send(JSON.stringify({ type: "debug", rawMessage: message }));
+                } catch(e) {}
+
                 const outMsg: any = {};
                 
-                if (message.serverContent?.modelTurn) {
-                  const audio = message.serverContent.modelTurn.parts[0]?.inlineData?.data;
-                  if (audio) {
-                    outMsg.audio = audio;
+                if (message.serverContent?.modelTurn?.parts) {
+                  const audioPart = message.serverContent.modelTurn.parts.find(p => p.inlineData && p.inlineData.data);
+                  if (audioPart) {
+                    outMsg.audio = audioPart.inlineData.data;
+                  }
+                  
+                  // Also get text if any (for debugging)
+                  const textPart = message.serverContent.modelTurn.parts.find(p => p.text);
+                  if (textPart) {
+                    outMsg.modelText = textPart.text;
                   }
                 }
                 if (message.serverContent?.interrupted) {
@@ -107,24 +126,43 @@ async function startServer() {
               },
             },
           });
-          sessions.set(clientWs, session);
+          
+          const currentState = sessions.get(clientWs);
+          if (currentState) {
+             currentState.session = newSession;
+             currentState.connected = true;
+             // Flush queue
+             while (currentState.queue.length > 0) {
+               const audioData = currentState.queue.shift();
+               try {
+                 newSession.sendRealtimeInput({
+                   audio: { data: audioData, mimeType: "audio/pcm;rate=16000" },
+                 });
+               } catch(e) {}
+             }
+          }
         } catch (e: any) {
           console.error("Live API Error:", e);
           clientWs.send(JSON.stringify({ error: e.message }));
         }
       } else if (msg.type === "audio" && msg.audio) {
-        if (session) {
-          try {
-            session.sendRealtimeInput({
-              audio: { data: msg.audio, mimeType: "audio/pcm;rate=16000" },
-            });
-          } catch(e) {
-             console.error("Failed to send audio", e);
+        if (state) {
+          if (state.connected && state.session) {
+            try {
+              state.session.sendRealtimeInput({
+                audio: { data: msg.audio, mimeType: "audio/pcm;rate=16000" },
+              });
+            } catch(e) {
+               console.error("Failed to send audio", e);
+            }
+          } else {
+            state.queue.push(msg.audio);
           }
         }
       } else if (msg.type === "stop") {
-        if (session) {
-            session = null;
+        if (state) {
+            state.session = null;
+            state.connected = false;
         }
       }
     });
@@ -146,18 +184,21 @@ async function startServer() {
     try {
       const { text } = req.body;
       const ai = getAi();
-      const interaction = await fetchWithBackoff(() => ai.interactions.create({
+      const response = await fetchWithBackoff(() => ai.models.generateContent({
         model: 'gemini-3.1-flash-tts-preview',
-        input: text,
-        response_modalities: ['audio']
+        contents: [{ parts: [{ text }] }],
+        config: {
+          responseModalities: ['AUDIO'],
+          speechConfig: {
+            voiceConfig: {
+              prebuiltVoiceConfig: { voiceName: 'Kore' },
+            },
+          },
+        },
       }));
-      for (const step of interaction.steps) {
-        if (step.type === 'model_output') {
-          const audioContent = step.content?.find(c => c.type === 'audio');
-          if (audioContent && audioContent.data) {
-            return res.json({ audio: audioContent.data });
-          }
-        }
+      const base64Audio = response?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      if (base64Audio) {
+        return res.json({ audio: base64Audio });
       }
       res.status(500).json({ error: "No audio generated" });
     } catch (e: any) {
@@ -177,7 +218,7 @@ async function startServer() {
   } else {
     const distPath = path.join(__dirname, "dist");
     app.use(express.static(distPath));
-    app.get("*all", (req, res) => {
+    app.use((req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });
   }

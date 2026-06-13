@@ -36,6 +36,13 @@ export default function App() {
 
     ws.onmessage = (event) => {
       const msg = JSON.parse(event.data);
+      console.log("WS message:", msg);
+      if (msg.error) {
+        console.error("Live API Error:", msg.error);
+        alert("Live API Error: " + msg.error);
+        stopRecording();
+        return;
+      }
       if (msg.audio) {
         if (!outCtxRef.current) {
           outCtxRef.current = new AudioContext({ sampleRate: 24000 });

@@ -33,7 +33,7 @@ export default function HomePage() {
     <div className="flex flex-col items-center justify-center min-h-[100dvh] bg-[#552c24] text-white">
       <div className="flex flex-col items-center justify-between w-full h-full min-h-[100dvh] max-w-md p-8 pt-24 pb-12">
         <div className="flex flex-col items-center justify-center w-full flex-1">
-          <img src="/src/persona.png" alt="App Icon" className="w-40 h-40 mx-auto mb-10 rounded-3xl shadow-2xl border-4 border-white/10 object-cover bg-white" />
+          <img src="/persona.png" alt="App Icon" className="w-40 h-40 mx-auto mb-10 rounded-3xl shadow-2xl border-4 border-white/10 object-cover bg-white" />
           <h1 className="text-4xl font-bold mb-4 tracking-tight">실시간 통역 앱</h1>
           <p className="text-[#ffcd4a] mb-12 font-medium text-lg text-center">구글로 로그인하여 통역기능 사용</p>
         </div>
