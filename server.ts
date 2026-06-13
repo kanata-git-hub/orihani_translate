@@ -65,14 +65,14 @@ async function startServer() {
 
       const state = sessions.get(clientWs);
 
-      if (msg.type === "start") {
+      if (msg.type === "process_audio" && msg.audio) {
         if (state?.session) {
           state.session = null;
         }
         
         const targetLang = msg.targetLanguageCode || "ko";
+        const role = msg.role;
         
-        // initialize state
         sessions.set(clientWs, { session: null, queue: [], connected: false });
         
         try {
@@ -84,38 +84,15 @@ async function startServer() {
               translationConfig: {
                 targetLanguageCode: targetLang,
               },
-              contextWindowCompression: {
-                triggerTokens: '0',
-                slidingWindow: { targetTokens: '0' },
-              },
-              realtimeInputConfig: {
-                automaticActivityDetection: {
-                  disabled: false,
-                },
-              },
-              inputAudioTranscription: {},
-              outputAudioTranscription: {},
             },
             callbacks: {
               onmessage: (message: LiveServerMessage) => {
-                // VERBOSE LOGGING
-                console.log("LIVE API MSG:", JSON.stringify(message, null, 2));
-                try {
-                  clientWs.send(JSON.stringify({ type: "debug", rawMessage: message }));
-                } catch(e) {}
-
-                const outMsg: any = {};
+                const outMsg: any = { role };
                 
                 if (message.serverContent?.modelTurn?.parts) {
                   const audioPart = message.serverContent.modelTurn.parts.find(p => p.inlineData && p.inlineData.data);
                   if (audioPart) {
                     outMsg.audio = audioPart.inlineData.data;
-                  }
-                  
-                  // Also get text if any (for debugging)
-                  const textPart = message.serverContent.modelTurn.parts.find(p => p.text);
-                  if (textPart) {
-                    outMsg.modelText = textPart.text;
                   }
                 }
                 if (message.serverContent?.interrupted) {
@@ -131,49 +108,35 @@ async function startServer() {
                   outMsg.turnComplete = true;
                 }
                 
-                if (Object.keys(outMsg).length > 0) {
+                if (Object.keys(outMsg).length > 1) { // More than just 'role'
                   clientWs.send(JSON.stringify(outMsg));
                 }
               },
             },
           });
           
-          const currentState = sessions.get(clientWs);
-          if (currentState) {
-             currentState.session = newSession;
-             currentState.connected = true;
-             // Flush queue
-             while (currentState.queue.length > 0) {
-               const audioData = currentState.queue.shift();
-               try {
-                 newSession.sendRealtimeInput({
-                   audio: { data: audioData, mimeType: "audio/pcm;rate=16000" },
-                 });
-               } catch(e) {}
-             }
-          }
+          sessions.set(clientWs, { session: newSession, queue: [], connected: true });
+          
+          newSession.sendClientContent({
+            turns: [
+              {
+                role: "user",
+                parts: [
+                  {
+                    inlineData: {
+                      mimeType: "audio/pcm;rate=16000",
+                      data: msg.audio
+                    }
+                  }
+                ]
+              }
+            ],
+            turnComplete: true
+          });
+          
         } catch (e: any) {
           console.error("Live API Error:", e);
-          clientWs.send(JSON.stringify({ error: e.message }));
-        }
-      } else if (msg.type === "audio" && msg.audio) {
-        if (state) {
-          if (state.connected && state.session) {
-            try {
-              state.session.sendRealtimeInput({
-                audio: { data: msg.audio, mimeType: "audio/pcm;rate=16000" },
-              });
-            } catch(e) {
-               console.error("Failed to send audio", e);
-            }
-          } else {
-            state.queue.push(msg.audio);
-          }
-        }
-      } else if (msg.type === "stop") {
-        if (state) {
-            state.session = null;
-            state.connected = false;
+          clientWs.send(JSON.stringify({ error: e.message, role }));
         }
       }
     });

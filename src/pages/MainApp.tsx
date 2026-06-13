@@ -28,10 +28,9 @@ export default function App() {
   
   const foreignerCompleteRef = useRef('');
   const userCompleteRef = useRef('');
-  const foreignerPartialRef = useRef('');
-  const userPartialRef = useRef('');
 
   const [playingTTS, setPlayingTTS] = useState(false);
+  const [processingRole, setProcessingRole] = useState<'foreigner' | 'user' | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -39,6 +38,7 @@ export default function App() {
   const processorRef = useRef<ScriptProcessorNode | null>(null);
   const outCtxRef = useRef<AudioContext | null>(null);
   const sessionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordedPcmRef = useRef<Float32Array[]>([]);
 
   const getEnsureWs = () => {
     return new Promise<WebSocket>((resolve, reject) => {
@@ -80,36 +80,29 @@ export default function App() {
             resetAudioQueue();
           }
           
-          const currentMic = activeMicRef.current;
+          const currentMic = msg.role || activeMicRef.current;
           
           if (msg.inputTranscription) {
             if (currentMic === 'foreigner') {
-              foreignerPartialRef.current = msg.inputTranscription;
+              foreignerCompleteRef.current += (foreignerCompleteRef.current ? ' ' : '') + msg.inputTranscription;
             } else if (currentMic === 'user') {
-              userPartialRef.current = msg.inputTranscription;
+              userCompleteRef.current += (userCompleteRef.current ? ' ' : '') + msg.inputTranscription;
             }
           }
           if (msg.outputTranscription) {
              if (currentMic === 'foreigner') {
-               userPartialRef.current = msg.outputTranscription;
+               userCompleteRef.current += (userCompleteRef.current ? ' ' : '') + msg.outputTranscription;
              } else if (currentMic === 'user') {
-               foreignerPartialRef.current = msg.outputTranscription;
+               foreignerCompleteRef.current += (foreignerCompleteRef.current ? ' ' : '') + msg.outputTranscription;
              }
           }
           
           if (msg.turnComplete) {
-            if (foreignerPartialRef.current) {
-              foreignerCompleteRef.current += (foreignerCompleteRef.current ? ' ' : '') + foreignerPartialRef.current;
-            }
-            if (userPartialRef.current) {
-              userCompleteRef.current += (userCompleteRef.current ? ' ' : '') + userPartialRef.current;
-            }
-            foreignerPartialRef.current = '';
-            userPartialRef.current = '';
+             setProcessingRole(null);
           }
           
-          setForeignerText((foreignerCompleteRef.current + (foreignerCompleteRef.current && foreignerPartialRef.current ? ' ' : '') + foreignerPartialRef.current).trim());
-          setUserText((userCompleteRef.current + (userCompleteRef.current && userPartialRef.current ? ' ' : '') + userPartialRef.current).trim());
+          setForeignerText(foreignerCompleteRef.current.trim());
+          setUserText(userCompleteRef.current.trim());
         } catch (e) {
           console.error("Error parsing WS message", e);
         }
@@ -163,16 +156,10 @@ export default function App() {
     }, 5 * 60 * 1000);
     
     try {
-      const ws = await getEnsureWs();
-      if (ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ 
-          type: 'start', 
-          targetLanguageCode: role === 'foreigner' ? 'ko' : foreignerLang 
-        }));
-      }
+      await getEnsureWs();
 
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const audioCtx = new AudioContextClass();
+      const audioCtx = new AudioContextClass({ sampleRate: 16000 });
       audioCtxRef.current = audioCtx;
       
       if (audioCtx.state === 'suspended') {
@@ -181,6 +168,7 @@ export default function App() {
 
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
+      recordedPcmRef.current = [];
       
       const source = audioCtx.createMediaStreamSource(stream);
       const processor = audioCtx.createScriptProcessor(4096, 1, 1);
@@ -194,17 +182,14 @@ export default function App() {
       gainNode.connect(audioCtx.destination);
       
       processor.onaudioprocess = (e) => {
-        if (ws.readyState === WebSocket.OPEN) {
-          const base64 = pcmToBase64(e.inputBuffer.getChannelData(0), audioCtx.sampleRate);
-          ws.send(JSON.stringify({ type: 'audio', audio: base64 }));
-        }
+        recordedPcmRef.current.push(new Float32Array(e.inputBuffer.getChannelData(0)));
       };
     } catch (err) {
         if (err instanceof Error) {
           if (err.name === 'NotAllowedError' || err.message.includes('Permission denied')) {
-            alert('마이크 접근이 거부되었습니다. 브라우저의 마이크 권한을 허용해주세요. (카카오톡 등 인앱 브라우저라면 우측 하단/상단 메뉴를 눌러 Safari 또는 Chrome으로 열어주세요.)');
+            alert('마이크 접근이 거부되었습니다. 브라우저의 마이크 권한을 허용해주세요.');
           } else {
-            alert('마이크 초기화 실패: ' + err.message + '\n\n카카오톡 등 인앱 브라우저라면 Safari나 Chrome으로 앱을 열어주세요.');
+            alert('마이크 초기화 실패: ' + err.message);
           }
         }
         console.error('Failed to access microphone', err);
@@ -221,14 +206,35 @@ export default function App() {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
+    
+    let combinedBase64 = null;
+    if (recordedPcmRef.current.length > 0 && audioCtxRef.current) {
+       const totalLength = recordedPcmRef.current.reduce((acc, val) => acc + val.length, 0);
+       const combined = new Float32Array(totalLength);
+       let offset = 0;
+       for (const chunk of recordedPcmRef.current) {
+         combined.set(chunk, offset);
+         offset += chunk.length;
+       }
+       combinedBase64 = pcmToBase64(combined, audioCtxRef.current.sampleRate);
+       recordedPcmRef.current = [];
+    }
+
     if (processorRef.current && audioCtxRef.current) {
       processorRef.current.disconnect();
       audioCtxRef.current.close().catch(console.error);
       processorRef.current = null;
       audioCtxRef.current = null;
     }
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify({ type: 'stop' }));
+    
+    if (combinedBase64 && wsRef.current?.readyState === WebSocket.OPEN && activeMic) {
+      setProcessingRole(activeMic);
+      wsRef.current.send(JSON.stringify({ 
+        type: 'process_audio',
+        role: activeMic,
+        audio: combinedBase64,
+        targetLanguageCode: activeMic === 'foreigner' ? 'ko' : foreignerLang
+      }));
     }
     setActiveMic(null);
   };
@@ -332,7 +338,7 @@ export default function App() {
               </div>
             ) : (
               <p className="text-2xl sm:text-3xl leading-tight text-white/50 font-normal">
-                {activeMic === 'foreigner' ? 'Listening...' : '외국인 대화 영역'}
+                {activeMic === 'foreigner' ? '듣는 중 (완료하려면 버튼을 다시 누르세요)...' : processingRole === 'foreigner' ? '번역 중...' : '외국인 대화 영역'}
               </p>
             )}
           </div>
@@ -388,7 +394,7 @@ export default function App() {
               </div>
             ) : (
               <p className="text-2xl sm:text-3xl leading-tight text-[#552c24]/50 font-normal">
-                {activeMic === 'user' ? '듣는 중...' : '한국어 대화 영역'}
+                {activeMic === 'user' ? '듣는 중 (완료하려면 버튼을 다시 누르세요)...' : processingRole === 'user' ? '번역 중...' : '한국어 대화 영역'}
               </p>
             )}
           </div>
