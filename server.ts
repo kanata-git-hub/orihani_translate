@@ -83,7 +83,10 @@ async function startServer() {
               responseModalities: [Modality.AUDIO],
               translationConfig: {
                 targetLanguageCode: targetLang,
-                echoTargetLanguage: true
+              },
+              contextWindowCompression: {
+                triggerTokens: '0',
+                slidingWindow: { targetTokens: '0' },
               },
               realtimeInputConfig: {
                 automaticActivityDetection: {
