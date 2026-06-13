@@ -141,8 +141,6 @@ export default function App() {
     setUserText('');
     foreignerCompleteRef.current = '';
     userCompleteRef.current = '';
-    foreignerPartialRef.current = '';
-    userPartialRef.current = '';
     
     resetAudioQueue();
     initOutCtx();
