@@ -145,13 +145,22 @@ TRANSLATION:
             // Processing text directly
             responseStream = await fetchWithBackoff(() => ai.models.generateContentStream({
               model: "gemini-3.5-flash",
-              config: {
-                systemInstruction: `You are an accurate translator. Translate the given text to ${targetLang} in a casually polite tone. Output ONLY the raw translated text, with no markdown, intro, or labels.`
-              },
               contents: [
                 {
                   role: "user",
-                  parts: [{ text: msg.text }]
+                  parts: [{ text: `The user spoke the following text, but it may contain speech recognition typos or lack punctuation:
+
+"${msg.text}"
+
+You are an accurate translator.
+First, fix any obvious typos in the original text and add natural punctuation.
+Second, translate the fixed text to ${targetLang} in a casually polite tone.
+
+Output your response strictly in the following format:
+TRANSCRIPTION:
+<the corrected original text>
+TRANSLATION:
+<the translated string>` }]
                 }
               ]
             }));
@@ -205,14 +214,14 @@ TRANSLATION:
             let currTrans = finalTranscription;
             let currTransl = finalTranslation;
 
-            if (msg.type === "process_audio") {
-              const transcrMatch = bufferStr.match(/TRANSCRIPTION:\s*([\s\S]*?)(?=\nTRANSLATION:|$)/);
-              const translMatch = bufferStr.match(/TRANSLATION:\s*([\s\S]*)$/);
-              
-              if (transcrMatch) currTrans = transcrMatch[1];
-              if (translMatch) currTransl = translMatch[1];
-            } else {
-              currTransl = bufferStr;
+            const transcrMatch = bufferStr.match(/TRANSCRIPTION:\s*([\s\S]*?)(?=\nTRANSLATION:|$)/);
+            const translMatch = bufferStr.match(/TRANSLATION:\s*([\s\S]*)$/);
+            
+            if (transcrMatch && transcrMatch[1].trim().length > 0) {
+              currTrans = transcrMatch[1];
+            }
+            if (translMatch) {
+              currTransl = translMatch[1];
             }
             
             finalTranscription = currTrans;
