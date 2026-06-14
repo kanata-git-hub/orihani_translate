@@ -63,7 +63,7 @@ async function startServer() {
         return;
       }
 
-      const state = sessions.get(clientWs) || { pcmBuffer: [] };
+      const state = sessions.get(clientWs) || { pcmBuffer: [], processPromise: Promise.resolve() };
       sessions.set(clientWs, state);
 
       if (msg.type === "audio_chunk" && msg.audio) {
@@ -72,17 +72,18 @@ async function startServer() {
       }
 
       if (msg.type === "process_text" || msg.type === "process_audio") {
-        if (state?.session) {
-          state.session = null;
-        }
-        
-        const targetLang = msg.targetLanguageCode || "ko";
-        const role = msg.role;
-        
-        try {
-          const ai = getAi();
+        state.processPromise = state.processPromise.then(async () => {
+          if (state?.session) {
+            state.session = null;
+          }
           
-          let responseStream;
+          const targetLang = msg.targetLanguageCode || "ko";
+          const role = msg.role;
+          
+          try {
+            const ai = getAi();
+            
+            let responseStream;
           
           if (msg.type === "process_audio") {
             let pcmBuffer: Buffer;
@@ -262,7 +263,8 @@ TRANSLATION:
           console.error("Pipeline Error:", e);
           clientWs.send(JSON.stringify({ error: e.message, role, turnComplete: true }));
         }
-      }
+      }).catch(e => console.error("Process Promise Error", e));
+    }
     });
 
     clientWs.on("close", () => {
