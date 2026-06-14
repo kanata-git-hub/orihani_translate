@@ -36,6 +36,7 @@ export default function App() {
 
   const lastProcessedIndex = useRef(0);
   const unfinalizedBufferRef = useRef('');
+  const lastFinalizedTimeRef = useRef<number>(0);
 
   const [playingTTS, setPlayingTTS] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -258,6 +259,7 @@ export default function App() {
           if (event.results[i].isFinal) {
             newFinals += event.results[i][0].transcript + ' ';
             lastProcessedIndex.current = i + 1;
+            lastFinalizedTimeRef.current = performance.now();
           } else {
             unfinalized += event.results[i][0].transcript;
           }
@@ -320,23 +322,26 @@ export default function App() {
       silenceTimerRef.current = null;
     }
     
+    const capturedUnfinalized = unfinalizedBufferRef.current.trim();
+    const roleToProcess = activeMicRef.current;
+    const currentLang = foreignerLang;
+
     if (recognitionRef.current) {
+      // Detach immediately to prevent double processing if the browser fires a final onresult during stop()
+      recognitionRef.current.onresult = null;
       recognitionRef.current.stop();
       recognitionRef.current = null;
     }
     
-    // Send any unfinalized text
-    if (wsRef.current?.readyState === WebSocket.OPEN && activeMicRef.current) {
-      if (unfinalizedBufferRef.current.trim()) {
-        const role = activeMicRef.current;
-        setProcessingRole(role);
-        wsRef.current.send(JSON.stringify({ 
-          type: 'process_text',
-          role: role,
-          text: unfinalizedBufferRef.current.trim(),
-          targetLanguageCode: role === 'foreigner' ? 'ko' : foreignerLang
-        }));
-      }
+    // Immediately process any pending text
+    if (wsRef.current?.readyState === WebSocket.OPEN && roleToProcess && capturedUnfinalized) {
+      setProcessingRole(roleToProcess);
+      wsRef.current.send(JSON.stringify({ 
+        type: 'process_text',
+        role: roleToProcess,
+        text: capturedUnfinalized,
+        targetLanguageCode: roleToProcess === 'foreigner' ? 'ko' : currentLang
+      }));
     }
     
     // Release playback hold
