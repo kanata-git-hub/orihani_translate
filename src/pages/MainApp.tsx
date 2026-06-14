@@ -381,9 +381,9 @@ export default function App() {
   };
 
   return (
-    <div className="flex flex-col h-[100dvh] w-full max-w-md mx-auto relative shadow-2xl overflow-hidden font-sans">
+    <div className="flex flex-col h-[100dvh] w-full max-w-md mx-auto relative shadow-2xl overflow-y-auto font-sans bg-white">
       {/* Top Half: Foreigner View */}
-      <div className="flex-1 relative bg-[#552c24] text-white flex flex-col p-8 pb-24">
+      <div className="flex-1 shrink-0 relative bg-[#552c24] text-white flex flex-col p-8 pb-24">
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center gap-2 bg-black/20 hover:bg-black/30 transition-colors px-3 py-1.5 rounded-full text-sm font-medium z-10 w-fit">
             <Languages size={16} className="text-[#ffcd4a]" />
@@ -420,7 +420,7 @@ export default function App() {
           </div>
         </div>
         
-        <div className="flex-1 overflow-y-auto w-full">
+        <div className="flex-1 overflow-visible w-full">
           <div className="flex flex-col justify-center min-h-full py-4">
             {foreignerText || localUnfinalizedForeigner ? (
               <div className="group relative pr-12">
@@ -443,10 +443,10 @@ export default function App() {
           </div>
         </div>
 
-        <div className="absolute bottom-8 left-0 right-0 flex justify-center z-10">
+        <div className="sticky bottom-8 left-0 right-0 flex justify-center z-10 h-0 overflow-visible pointer-events-none">
           <button
             onClick={toggleForeignerMic}
-            className={`w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-xl ${
+            className={`w-16 h-16 pointer-events-auto rounded-full flex items-center justify-center transition-all shadow-xl ${
               activeMic === 'foreigner' 
                 ? 'bg-red-500 animate-pulse text-white scale-110' 
                 : 'bg-[#ffcd4a] text-[#552c24] hover:scale-105'
@@ -461,12 +461,12 @@ export default function App() {
       <div className="h-2 w-full bg-[#ffcd4a] z-20 shrink-0 shadow-sm relative" />
 
       {/* Bottom Half: User (Korean) View */}
-      <div className="flex-1 relative bg-white text-[#552c24] flex flex-col p-8 pt-24">
+      <div className="flex-1 shrink-0 relative bg-white text-[#552c24] flex flex-col p-8 pt-24">
         
-        <div className="absolute top-8 left-0 right-0 flex justify-center z-10">
+        <div className="sticky top-8 left-0 right-0 flex justify-center z-10 h-0 overflow-visible pointer-events-none">
           <button
             onClick={toggleUserMic}
-            className={`w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-xl ${
+            className={`w-16 h-16 pointer-events-auto rounded-full flex items-center justify-center transition-all shadow-xl -translate-y-full ${
               activeMic === 'user' 
                 ? 'bg-red-500 animate-pulse text-white scale-110' 
                 : 'bg-[#552c24] text-white hover:scale-105'
@@ -476,7 +476,7 @@ export default function App() {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto w-full">
+        <div className="flex-1 overflow-visible w-full">
           <div className="flex flex-col justify-center min-h-full py-4">
             {userText || localUnfinalizedUser ? (
               <div className="group relative pr-12">
