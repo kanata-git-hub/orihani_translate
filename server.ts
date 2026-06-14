@@ -126,10 +126,10 @@ If the targetLanguageCode is not "ko" (e.g., "en", "ja"), translate the audio to
 Target Language Code: ${targetLang}
 
 Output your response strictly in the following format:
-TRANSLATION:
-<the casually polite translated string>
 TRANSCRIPTION:
-<the exact string of what was spoken in the audio>`
+<the exact string of what was spoken in the audio>
+TRANSLATION:
+<the casually polite translated string>`
                     },
                     {
                       inlineData: {
@@ -145,22 +145,13 @@ TRANSCRIPTION:
             // Processing text directly
             responseStream = await fetchWithBackoff(() => ai.models.generateContentStream({
               model: "gemini-3.5-flash",
+              config: {
+                systemInstruction: `You are an accurate translator. Translate the given text to ${targetLang} in a casually polite tone. Output ONLY the raw translated text, with no markdown, intro, or labels.`
+              },
               contents: [
                 {
                   role: "user",
-                  parts: [{ text: `The user spoke the following text, but it may contain speech recognition typos or lack punctuation:
-
-"${msg.text}"
-
-You are an accurate translator.
-First, fix any obvious typos in the original text and add natural punctuation.
-Second, translate the fixed text to ${targetLang} in a casually polite tone.
-
-Output your response strictly in the following format:
-TRANSLATION:
-<the translated string>
-TRANSCRIPTION:
-<the corrected original text>` }]
+                  parts: [{ text: msg.text }]
                 }
               ]
             }));
@@ -214,14 +205,14 @@ TRANSCRIPTION:
             let currTrans = finalTranscription;
             let currTransl = finalTranslation;
 
-            const translMatch = bufferStr.match(/TRANSLATION:\s*([\s\S]*?)(?=\nTRANSCRIPTION:|$)/);
-            const transcrMatch = bufferStr.match(/TRANSCRIPTION:\s*([\s\S]*)$/);
-            
-            if (transcrMatch && transcrMatch[1].trim().length > 0) {
-              currTrans = transcrMatch[1];
-            }
-            if (translMatch) {
-              currTransl = translMatch[1];
+            if (msg.type === "process_audio") {
+              const transcrMatch = bufferStr.match(/TRANSCRIPTION:\s*([\s\S]*?)(?=\nTRANSLATION:|$)/);
+              const translMatch = bufferStr.match(/TRANSLATION:\s*([\s\S]*)$/);
+              
+              if (transcrMatch) currTrans = transcrMatch[1];
+              if (translMatch) currTransl = translMatch[1];
+            } else {
+              currTransl = bufferStr;
             }
             
             finalTranscription = currTrans;
@@ -267,6 +258,27 @@ TRANSCRIPTION:
 
           await ttsPromise;
           clientWs.send(JSON.stringify({ role, turnComplete: true }));
+          
+          // Asynchronously fix typos in the Korean transcription
+          if (finalTranscription && msg.role === 'user') { // Assuming 'user' is the one speaking Korean
+             const fixTyposAsync = async () => {
+               try {
+                 const ai = getAi();
+                 const fixPrompt = `다음 한국어 문장은 음성 인식된 결과입니다. 문맥을 고려하여 명백한 오타나 인식 오류를 자연스럽게 수정해주세요. 수정된 텍스트만 출력하고, 수정할 부분이 없으면 원래 텍스트를 그대로 출력하세요.\n\n텍스트: ${finalTranscription}`;
+                 const res = await ai.models.generateContent({
+                   model: "gemini-2.5-flash",
+                   contents: [{ role: "user", parts: [{ text: fixPrompt }] }]
+                 });
+                 const corrected = res.text?.trim();
+                 if (corrected && corrected !== finalTranscription) {
+                   clientWs.send(JSON.stringify({ role, originalTranscription: finalTranscription, correctedTranscription: corrected }));
+                 }
+               } catch (e) {
+                 console.error("Typo correction error:", e);
+               }
+             };
+             fixTyposAsync();
+          }
 
         } catch (e: any) {
           console.error("Pipeline Error:", e);

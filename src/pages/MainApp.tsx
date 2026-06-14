@@ -117,6 +117,15 @@ export default function App() {
                 userPendingRef.current = '';
              }
              setProcessingRole(null);
+          } else if (msg.correctedTranscription) {
+             const targetRef = currentMic === 'foreigner' ? foreignerCompleteRef : userCompleteRef;
+             const lastIdx = targetRef.current.lastIndexOf(msg.originalTranscription);
+             if (lastIdx !== -1) {
+                targetRef.current = 
+                   targetRef.current.substring(0, lastIdx) + 
+                   msg.correctedTranscription + 
+                   targetRef.current.substring(lastIdx + msg.originalTranscription.length);
+             }
           } else {
              // legacy single-shot WS event
              if (msg.inputTranscription) {
@@ -300,6 +309,18 @@ export default function App() {
     if (recognitionRef.current) {
       recognitionRef.current.stop();
       recognitionRef.current = null;
+    }
+    
+    if (wsRef.current?.readyState === WebSocket.OPEN && activeMic) {
+      if (unfinalizedBufferRef.current.trim()) {
+        setProcessingRole(activeMic);
+        wsRef.current.send(JSON.stringify({ 
+          type: 'process_text',
+          role: activeMic,
+          text: unfinalizedBufferRef.current.trim(),
+          targetLanguageCode: activeMic === 'foreigner' ? 'ko' : foreignerLang
+        }));
+      }
     }
     
     // Release playback hold
