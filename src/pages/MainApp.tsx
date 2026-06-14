@@ -7,7 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 export default function App() {
-  const [foreignerLang, setForeignerLang] = useLocalStorage<'ja' | 'en'>('app_foreignerLang', 'ja');
+  const [foreignerLang, setForeignerLang] = useLocalStorage<string>('app_foreignerLang', 'ja');
   const navigate = useNavigate();
   const { isAdmin } = useAuth();
   
@@ -285,10 +285,6 @@ export default function App() {
     }
   };
 
-  const toggleForeignerLang = () => {
-    setForeignerLang(prev => prev === 'ja' ? 'en' : 'ja');
-  };
-
   const playTTS = async (text: string) => {
     if (!text) return;
     setPlayingTTS(true);
@@ -323,13 +319,20 @@ export default function App() {
       {/* Top Half: Foreigner View */}
       <div className="flex-1 relative bg-[#552c24] text-white flex flex-col p-8 pb-24">
         <div className="flex justify-between items-center mb-6">
-          <button 
-            onClick={toggleForeignerLang}
-            className="flex items-center gap-2 bg-black/20 hover:bg-black/30 transition-colors px-3 py-1.5 rounded-full text-sm font-medium z-10"
-          >
+          <div className="flex items-center gap-2 bg-black/20 hover:bg-black/30 transition-colors px-3 py-1.5 rounded-full text-sm font-medium z-10 w-fit">
             <Languages size={16} className="text-[#ffcd4a]" />
-            {foreignerLang === 'ja' ? '일본어' : '영어'}
-          </button>
+            <select
+              value={foreignerLang}
+              onChange={(e) => setForeignerLang(e.target.value)}
+              className="bg-transparent text-white outline-none cursor-pointer appearance-none pr-4"
+              style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23FFFFFF%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right center', backgroundSize: '0.65em auto' }}
+            >
+              <option value="en" className="text-black">영어</option>
+              <option value="ja" className="text-black">일본어</option>
+              <option value="es" className="text-black">스페인어</option>
+              <option value="zh" className="text-black">중국어</option>
+            </select>
+          </div>
           
           <div className="flex items-center gap-2 z-10">
             {isAdmin && (
