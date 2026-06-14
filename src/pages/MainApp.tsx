@@ -325,6 +325,20 @@ export default function App() {
       recognitionRef.current = null;
     }
     
+    // Send any unfinalized text
+    if (wsRef.current?.readyState === WebSocket.OPEN && activeMicRef.current) {
+      if (unfinalizedBufferRef.current.trim()) {
+        const role = activeMicRef.current;
+        setProcessingRole(role);
+        wsRef.current.send(JSON.stringify({ 
+          type: 'process_text',
+          role: role,
+          text: unfinalizedBufferRef.current.trim(),
+          targetLanguageCode: role === 'foreigner' ? 'ko' : foreignerLang
+        }));
+      }
+    }
+    
     // Release playback hold
     if (outCtxRef.current) {
        setHoldPlayback(false, outCtxRef.current);
