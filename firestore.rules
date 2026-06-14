@@ -12,7 +12,8 @@ service cloud.firestore {
 
     // Admin dashboard collection
     match /approved_users/{docId} {
-      allow read, write: if isAdmin();
+      allow read: if isAdmin() || (request.auth != null && resource.data.email == request.auth.token.email);
+      allow write: if isAdmin();
     }
 
     // Generic user data example

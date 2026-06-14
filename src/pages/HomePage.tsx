@@ -1,21 +1,18 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { loginWithGoogle } from '../lib/firebaseUtils';
+import { loginWithGoogle, logout } from '../lib/firebaseUtils';
 
 export default function HomePage() {
-  const { user, isAdmin } = useAuth();
+  const { user, isAdmin, isApproved } = useAuth();
   const navigate = useNavigate();
 
   const handleLogin = async () => {
     try {
       await loginWithGoogle();
-      // On success, redirect to Main App or Admin
-      if (isAdmin) {
-         navigate('/admin');
-      } else {
-         navigate('/app');
-      }
+      // On success, redirect to Main App or Admin is handled automatically if we have state sync, 
+      // but if the user gets approved later, they could still be here.
+      // AuthContext will re-evaluate on auth state change.
     } catch (e) {
       console.error(e);
     }
@@ -24,7 +21,7 @@ export default function HomePage() {
   const handleGoToApp = () => {
      if (isAdmin) {
          navigate('/admin');
-     } else {
+     } else if (isApproved) {
          navigate('/app');
      }
   };
@@ -41,12 +38,27 @@ export default function HomePage() {
         <div className="w-full mt-auto">
           {user ? (
             <div className="flex flex-col gap-4">
-              <p className="font-medium text-white/90 text-center mb-2">환영합니다, {user.displayName}님</p>
+              <p className="font-medium text-white/90 text-center mb-2">환영합니다, {user.displayName || user.email}님</p>
+              
+              {!isApproved ? (
+                <div className="bg-red-500/20 text-red-200 border border-red-500/30 rounded-2xl p-4 text-center mb-2">
+                  <p className="font-bold mb-1">앱 접근 권한이 없습니다.</p>
+                  <p className="text-sm">관리자에게 승인을 요청해주세요.</p>
+                </div>
+              ) : (
+                <button 
+                  onClick={handleGoToApp}
+                  className="w-full bg-[#ffcd4a] text-[#552c24] text-lg font-bold py-4 px-6 rounded-2xl hover:bg-[#e6b840] transition-all shadow-lg active:scale-[0.98]"
+                >
+                  앱으로 계속하기
+                </button>
+              )}
+              
               <button 
-                onClick={handleGoToApp}
-                className="w-full bg-[#ffcd4a] text-[#552c24] text-lg font-bold py-4 px-6 rounded-2xl hover:bg-[#e6b840] transition-all shadow-lg active:scale-[0.98]"
+                onClick={logout}
+                className="w-full bg-white/10 text-white text-lg font-bold py-4 px-6 rounded-2xl hover:bg-white/20 transition-all active:scale-[0.98]"
               >
-                앱으로 계속하기
+                다른 계정으로 로그인
               </button>
             </div>
           ) : (

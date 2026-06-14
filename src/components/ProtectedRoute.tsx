@@ -3,11 +3,11 @@ import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
 export const ProtectedRoute: React.FC = () => {
-  const { user, loading } = useAuth();
+  const { user, loading, isApproved } = useAuth();
 
   if (loading) return <div>Loading...</div>;
 
-  if (!user) {
+  if (!user || !isApproved) {
     return <Navigate to="/" replace />;
   }
 
