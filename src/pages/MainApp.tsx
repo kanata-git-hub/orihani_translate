@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Mic, Square, Languages, Volume2, Loader2, LogOut, Shield } from 'lucide-react';
-import { pcmToBase64, playAudioChunk, resetAudioQueue } from '../audio';
+import { pcmToBase64, playAudioChunk, resetAudioQueue, setHoldPlayback } from '../audio';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { logout } from '../lib/firebaseUtils';
 import { useNavigate } from 'react-router-dom';
@@ -31,13 +31,29 @@ export default function App() {
   const foreignerPendingRef = useRef('');
   const userPendingRef = useRef('');
 
+  const [localUnfinalizedForeigner, setLocalUnfinalizedForeigner] = useState('');
+  const [localUnfinalizedUser, setLocalUnfinalizedUser] = useState('');
+
+  const lastProcessedIndex = useRef(0);
+  const unfinalizedBufferRef = useRef('');
+
   const [playingTTS, setPlayingTTS] = useState(false);
   const [processingRole, setProcessingRole] = useState<'foreigner' | 'user' | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
   const recognitionRef = useRef<any>(null);
   const sessionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const outCtxRef = useRef<AudioContext | null>(null);
+
+  const resetSilenceTimer = () => {
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+    }
+    silenceTimerRef.current = setTimeout(() => {
+      stopRecording();
+    }, 10000);
+  };
 
   const getEnsureWs = () => {
     return new Promise<WebSocket>((resolve, reject) => {
@@ -160,13 +176,20 @@ export default function App() {
     setActiveMic(role);
     setForeignerText('');
     setUserText('');
+    setLocalUnfinalizedForeigner('');
+    setLocalUnfinalizedUser('');
     foreignerCompleteRef.current = '';
     userCompleteRef.current = '';
     foreignerPendingRef.current = '';
     userPendingRef.current = '';
+    lastProcessedIndex.current = 0;
+    unfinalizedBufferRef.current = '';
     
     resetAudioQueue();
     initOutCtx();
+    if (outCtxRef.current) {
+       setHoldPlayback(true, outCtxRef.current);
+    }
 
     if (sessionTimeoutRef.current) {
       clearTimeout(sessionTimeoutRef.current);
@@ -175,6 +198,8 @@ export default function App() {
     sessionTimeoutRef.current = setTimeout(() => {
       stopRecording();
     }, 5 * 60 * 1000);
+    
+    resetSilenceTimer();
     
     try {
       await getEnsureWs();
@@ -203,19 +228,39 @@ export default function App() {
       recognition.lang = recLang;
 
       recognition.onresult = (event: any) => {
-        let fullTranscript = '';
-        for (let i = 0; i < event.results.length; ++i) {
-          fullTranscript += event.results[i][0].transcript;
-        }
-
-        if (role === 'foreigner') {
-          foreignerPendingRef.current = fullTranscript;
-        } else {
-          userPendingRef.current = fullTranscript;
+        resetSilenceTimer();
+        
+        let newFinals = '';
+        let unfinalized = '';
+        
+        for (let i = lastProcessedIndex.current; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            newFinals += event.results[i][0].transcript + ' ';
+            lastProcessedIndex.current = i + 1;
+          } else {
+            unfinalized += event.results[i][0].transcript;
+          }
         }
         
-        setForeignerText((foreignerCompleteRef.current + " " + foreignerPendingRef.current).trim());
-        setUserText((userCompleteRef.current + " " + userPendingRef.current).trim());
+        unfinalizedBufferRef.current = unfinalized;
+
+        if (role === 'foreigner') {
+          setLocalUnfinalizedForeigner(unfinalized);
+        } else {
+          setLocalUnfinalizedUser(unfinalized);
+        }
+
+        if (newFinals.trim()) {
+           if (wsRef.current?.readyState === WebSocket.OPEN) {
+             setProcessingRole(role);
+             wsRef.current.send(JSON.stringify({ 
+               type: 'process_text',
+               role: role,
+               text: newFinals.trim(),
+               targetLanguageCode: role === 'foreigner' ? 'ko' : foreignerLang
+             }));
+           }
+        }
       };
 
       recognition.onerror = (event: any) => {
@@ -240,33 +285,37 @@ export default function App() {
       sessionTimeoutRef.current = null;
     }
     
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current);
+      silenceTimerRef.current = null;
+    }
+    
     if (recognitionRef.current) {
       recognitionRef.current.stop();
       recognitionRef.current = null;
     }
     
     if (wsRef.current?.readyState === WebSocket.OPEN && activeMic) {
-      setProcessingRole(activeMic);
-      
-      const currentTurnText = activeMic === 'foreigner' 
-        ? foreignerPendingRef.current.trim() 
-        : userPendingRef.current.trim();
-        
-      if (currentTurnText) {
-        if (activeMic === 'foreigner') foreignerPendingRef.current = '';
-        else userPendingRef.current = '';
-
+      if (unfinalizedBufferRef.current.trim()) {
+        setProcessingRole(activeMic);
         wsRef.current.send(JSON.stringify({ 
           type: 'process_text',
           role: activeMic,
-          text: currentTurnText,
+          text: unfinalizedBufferRef.current.trim(),
           targetLanguageCode: activeMic === 'foreigner' ? 'ko' : foreignerLang
         }));
-      } else {
-        setProcessingRole(null);
       }
     }
+    
+    // Release playback hold
+    if (outCtxRef.current) {
+       setHoldPlayback(false, outCtxRef.current);
+    }
+    
     setActiveMic(null);
+    setLocalUnfinalizedForeigner('');
+    setLocalUnfinalizedUser('');
+    unfinalizedBufferRef.current = '';
   };
 
   const toggleForeignerMic = () => {
@@ -356,10 +405,10 @@ export default function App() {
         
         <div className="flex-1 overflow-y-auto w-full">
           <div className="flex flex-col justify-center min-h-full py-4">
-            {foreignerText ? (
+            {foreignerText || localUnfinalizedForeigner ? (
               <div className="group relative pr-12">
                 <p className="text-2xl sm:text-3xl leading-tight font-medium break-words text-white">
-                  {foreignerText}
+                  {foreignerText} {localUnfinalizedForeigner && <span className="opacity-70">{localUnfinalizedForeigner}</span>}
                 </p>
                 <button 
                   onClick={() => playTTS(foreignerText)} 
@@ -412,10 +461,10 @@ export default function App() {
 
         <div className="flex-1 overflow-y-auto w-full">
           <div className="flex flex-col justify-center min-h-full py-4">
-            {userText ? (
+            {userText || localUnfinalizedUser ? (
               <div className="group relative pr-12">
                 <p className="text-2xl sm:text-3xl leading-tight font-medium break-words text-[#552c24]">
-                  {userText}
+                  {userText} {localUnfinalizedUser && <span className="opacity-70">{localUnfinalizedUser}</span>}
                 </p>
                 <button 
                   onClick={() => playTTS(userText)} 
