@@ -44,6 +44,7 @@ export default function App() {
   const recognitionRef = useRef<any>(null);
   const sessionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const didRestartRef = useRef<boolean>(false);
   const outCtxRef = useRef<AudioContext | null>(null);
 
   const resetSilenceTimer = () => {
@@ -192,6 +193,7 @@ export default function App() {
     foreignerPendingRef.current = '';
     userPendingRef.current = '';
     lastProcessedIndex.current = 0;
+    didRestartRef.current = false;
     unfinalizedBufferRef.current = '';
     
     resetAudioQueue();
@@ -239,12 +241,22 @@ export default function App() {
       recognition.onresult = (event: any) => {
         resetSilenceTimer();
         
+        if (didRestartRef.current) {
+          if (event.results.length === 1 || event.results.length < lastProcessedIndex.current) {
+               // Browser clearly cleared the results list (Desktop Chrome behavior)
+               lastProcessedIndex.current = 0;
+          }
+          // The flag is now consumed
+          didRestartRef.current = false;
+        }
+        
         let newFinals = '';
         let unfinalized = '';
         
-        for (let i = 0; i < event.results.length; ++i) {
+        for (let i = lastProcessedIndex.current; i < event.results.length; ++i) {
           if (event.results[i].isFinal) {
             newFinals += event.results[i][0].transcript + ' ';
+            lastProcessedIndex.current = i + 1;
           } else {
             unfinalized += event.results[i][0].transcript;
           }
@@ -282,6 +294,7 @@ export default function App() {
       recognition.onend = () => {
         if (activeMicRef.current === role) {
           try {
+            didRestartRef.current = true;
             recognition.start();
           } catch (e) {}
         }
