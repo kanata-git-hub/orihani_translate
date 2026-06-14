@@ -7,6 +7,12 @@ export default function HomePage() {
   const { user, isAdmin, isApproved } = useAuth();
   const navigate = useNavigate();
 
+  React.useEffect(() => {
+    if (user && isApproved) {
+      navigate('/app');
+    }
+  }, [user, isApproved, navigate]);
+
   const handleLogin = async () => {
     try {
       await loginWithGoogle();
@@ -19,9 +25,7 @@ export default function HomePage() {
   };
 
   const handleGoToApp = () => {
-     if (isAdmin) {
-         navigate('/admin');
-     } else if (isApproved) {
+     if (isApproved) {
          navigate('/app');
      }
   };
