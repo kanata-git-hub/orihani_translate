@@ -225,7 +225,7 @@ export default function App() {
       }
 
       const recognition = new SpeechRecognition();
-      recognition.continuous = false;
+      recognition.continuous = true;
       recognition.interimResults = true;
       
       // Map standard ISO code to BCP-47 for foreignerLang
@@ -242,11 +242,12 @@ export default function App() {
         let newFinals = '';
         let unfinalized = '';
         
-        if (event.results.length > 0) {
-          if (event.results[0].isFinal) {
-             newFinals = event.results[0][0].transcript;
+        for (let i = lastProcessedIndex.current; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            newFinals += event.results[i][0].transcript + ' ';
+            lastProcessedIndex.current = i + 1;
           } else {
-             unfinalized = event.results[0][0].transcript;
+            unfinalized += event.results[i][0].transcript;
           }
         }
         
@@ -282,6 +283,7 @@ export default function App() {
       recognition.onend = () => {
         if (activeMicRef.current === role) {
           try {
+            lastProcessedIndex.current = 0; // Reset index for the new continuous session!
             recognition.start();
           } catch (e) {}
         }
