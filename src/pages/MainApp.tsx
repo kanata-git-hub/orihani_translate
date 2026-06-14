@@ -216,7 +216,7 @@ export default function App() {
       }
 
       const recognition = new SpeechRecognition();
-      recognition.continuous = true;
+      recognition.continuous = false;
       recognition.interimResults = true;
       
       // Map standard ISO code to BCP-47 for foreignerLang
@@ -233,12 +233,11 @@ export default function App() {
         let newFinals = '';
         let unfinalized = '';
         
-        for (let i = lastProcessedIndex.current; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            newFinals += event.results[i][0].transcript + ' ';
-            lastProcessedIndex.current = i + 1;
+        if (event.results.length > 0) {
+          if (event.results[0].isFinal) {
+             newFinals = event.results[0][0].transcript;
           } else {
-            unfinalized += event.results[i][0].transcript;
+             unfinalized = event.results[0][0].transcript;
           }
         }
         
@@ -268,6 +267,14 @@ export default function App() {
         if (event.error === 'not-allowed') {
            alert('마이크 접근이 거부되었습니다. 브라우저의 마이크 권한을 허용해주세요.');
            setActiveMic(null);
+        }
+      };
+
+      recognition.onend = () => {
+        if (activeMicRef.current === role) {
+          try {
+            recognition.start();
+          } catch (e) {}
         }
       };
 
