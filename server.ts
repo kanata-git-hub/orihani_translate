@@ -126,10 +126,10 @@ If the targetLanguageCode is not "ko" (e.g., "en", "ja"), translate the audio to
 Target Language Code: ${targetLang}
 
 Output your response strictly in the following format:
-TRANSCRIPTION:
-<the exact string of what was spoken in the audio>
 TRANSLATION:
-<the casually polite translated string>`
+<the casually polite translated string>
+TRANSCRIPTION:
+<the exact string of what was spoken in the audio>`
                     },
                     {
                       inlineData: {
@@ -157,10 +157,10 @@ First, fix any obvious typos in the original text and add natural punctuation.
 Second, translate the fixed text to ${targetLang} in a casually polite tone.
 
 Output your response strictly in the following format:
-TRANSCRIPTION:
-<the corrected original text>
 TRANSLATION:
-<the translated string>` }]
+<the translated string>
+TRANSCRIPTION:
+<the corrected original text>` }]
                 }
               ]
             }));
@@ -214,8 +214,8 @@ TRANSLATION:
             let currTrans = finalTranscription;
             let currTransl = finalTranslation;
 
-            const transcrMatch = bufferStr.match(/TRANSCRIPTION:\s*([\s\S]*?)(?=\nTRANSLATION:|$)/);
-            const translMatch = bufferStr.match(/TRANSLATION:\s*([\s\S]*)$/);
+            const translMatch = bufferStr.match(/TRANSLATION:\s*([\s\S]*?)(?=\nTRANSCRIPTION:|$)/);
+            const transcrMatch = bufferStr.match(/TRANSCRIPTION:\s*([\s\S]*)$/);
             
             if (transcrMatch && transcrMatch[1].trim().length > 0) {
               currTrans = transcrMatch[1];
