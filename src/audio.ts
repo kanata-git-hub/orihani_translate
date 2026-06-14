@@ -31,7 +31,24 @@ export function pcmToBase64(pcmData: Float32Array, sampleRate: number): string {
 }
 
 let nextStartTime = 0;
+let holdPlayback = false;
+const audioQueue: string[] = [];
+
+export function setHoldPlayback(hold: boolean, context: AudioContext) {
+  holdPlayback = hold;
+  if (!hold && audioQueue.length > 0) {
+    const queueToPlay = [...audioQueue];
+    audioQueue.length = 0; // clear queue
+    queueToPlay.forEach(base64Audio => playAudioChunk(context, base64Audio));
+  }
+}
+
 export function playAudioChunk(context: AudioContext, base64Audio: string) {
+  if (holdPlayback) {
+    audioQueue.push(base64Audio);
+    return;
+  }
+
   try {
     const binary = atob(base64Audio);
     const buffer = new ArrayBuffer(binary.length);
@@ -65,4 +82,5 @@ export function playAudioChunk(context: AudioContext, base64Audio: string) {
 
 export function resetAudioQueue() {
   nextStartTime = 0;
+  audioQueue.length = 0;
 }
