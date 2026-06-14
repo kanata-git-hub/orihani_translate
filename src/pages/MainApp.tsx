@@ -302,18 +302,6 @@ export default function App() {
       recognitionRef.current = null;
     }
     
-    if (wsRef.current?.readyState === WebSocket.OPEN && activeMic) {
-      if (unfinalizedBufferRef.current.trim()) {
-        setProcessingRole(activeMic);
-        wsRef.current.send(JSON.stringify({ 
-          type: 'process_text',
-          role: activeMic,
-          text: unfinalizedBufferRef.current.trim(),
-          targetLanguageCode: activeMic === 'foreigner' ? 'ko' : foreignerLang
-        }));
-      }
-    }
-    
     // Release playback hold
     if (outCtxRef.current) {
        setHoldPlayback(false, outCtxRef.current);
