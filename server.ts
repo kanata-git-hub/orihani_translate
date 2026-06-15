@@ -77,7 +77,15 @@ async function startServer() {
             state.session = null;
           }
           
-          const targetLang = msg.targetLanguageCode || "ko";
+          const codeMap: Record<string, string> = {
+            "ko": "Korean",
+            "en": "English",
+            "ja": "Japanese",
+            "es": "Spanish",
+            "zh": "Chinese"
+          };
+          const rawTarget = msg.targetLanguageCode || "Korean";
+          const targetLang = codeMap[rawTarget.toLowerCase()] || rawTarget;
           const role = msg.role;
           
           try {
