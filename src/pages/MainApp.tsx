@@ -274,15 +274,15 @@ export default function App() {
         }
 
         if (newFinals.trim()) {
-           if (wsRef.current?.readyState === WebSocket.OPEN) {
-             setProcessingRole(role);
-             wsRef.current.send(JSON.stringify({ 
+           setProcessingRole(role);
+           getEnsureWs().then(ws => {
+              ws.send(JSON.stringify({ 
                type: 'process_text',
                role: role,
                text: newFinals.trim(),
-               targetLanguageCode: role === 'foreigner' ? 'ko' : foreignerLang
+               targetLanguageCode: role === 'foreigner' ? 'Korean' : foreignerLang
              }));
-           }
+           }).catch(console.error);
         }
       };
 
@@ -334,14 +334,16 @@ export default function App() {
     }
     
     // Immediately process any pending text
-    if (wsRef.current?.readyState === WebSocket.OPEN && roleToProcess && capturedUnfinalized) {
+    if (roleToProcess && capturedUnfinalized) {
       setProcessingRole(roleToProcess);
-      wsRef.current.send(JSON.stringify({ 
-        type: 'process_text',
-        role: roleToProcess,
-        text: capturedUnfinalized,
-        targetLanguageCode: roleToProcess === 'foreigner' ? 'ko' : currentLang
-      }));
+      getEnsureWs().then(ws => {
+          ws.send(JSON.stringify({ 
+          type: 'process_text',
+          role: roleToProcess,
+          text: capturedUnfinalized,
+          targetLanguageCode: roleToProcess === 'foreigner' ? 'Korean' : currentLang
+        }));
+      }).catch(console.error);
     }
     
     // Release playback hold
