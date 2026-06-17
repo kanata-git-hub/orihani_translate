@@ -6,6 +6,34 @@ import { logout } from '../lib/firebaseUtils';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 
+const LOCALIZATION: Record<string, { idle: string; listening: string; translating: string }> = {
+  ko: {
+    idle: "마이크를 한 번 터치하고 한국어로 말씀하세요",
+    listening: "듣고 있습니다 (끝나면 다시 터치하세요)...",
+    translating: "번역 중..."
+  },
+  en: {
+    idle: "Tap the microphone once to speak",
+    listening: "Listening (Tap again to stop)...",
+    translating: "Translating..."
+  },
+  ja: {
+    idle: "マイクをタップしてお話しください",
+    listening: "聞き取っています (もう一度タップすると完了します)...",
+    translating: "翻訳しています..."
+  },
+  zh: {
+    idle: "请轻触麦克风说话",
+    listening: "倾听中 (再次轻触完成)...",
+    translating: "翻译中..."
+  },
+  es: {
+    idle: "Toca el micrófono una vez para hablar",
+    listening: "Escuchando (Toca de nuevo para terminar)...",
+    translating: "Traduciendo..."
+  }
+};
+
 export default function App() {
   const [foreignerLang, setForeignerLang] = useLocalStorage<string>('app_foreignerLang', 'ja');
   const navigate = useNavigate();
@@ -402,6 +430,9 @@ export default function App() {
     }
   };
 
+  const foreignLoc = LOCALIZATION[foreignerLang] || LOCALIZATION.en;
+  const userLoc = LOCALIZATION.ko;
+
   return (
     <div className="flex flex-col h-[100dvh] w-full max-w-md mx-auto relative shadow-2xl overflow-y-auto font-sans bg-white">
       {/* Top Half: Foreigner View */}
@@ -459,7 +490,7 @@ export default function App() {
               </div>
             ) : (
               <p className="text-2xl sm:text-3xl leading-tight text-white/50 font-normal">
-                {activeMic === 'foreigner' ? '듣는 중 (완료하려면 버튼을 다시 누르세요)...' : processingRole === 'foreigner' ? '번역 중...' : '외국인 대화 영역'}
+                {activeMic === 'foreigner' ? foreignLoc.listening : processingRole === 'foreigner' ? foreignLoc.translating : foreignLoc.idle}
               </p>
             )}
           </div>
@@ -515,7 +546,7 @@ export default function App() {
               </div>
             ) : (
               <p className="text-2xl sm:text-3xl leading-tight text-[#552c24]/50 font-normal">
-                {activeMic === 'user' ? '듣는 중 (완료하려면 버튼을 다시 누르세요)...' : processingRole === 'user' ? '번역 중...' : '한국어 대화 영역'}
+                {activeMic === 'user' ? userLoc.listening : processingRole === 'user' ? userLoc.translating : userLoc.idle}
               </p>
             )}
           </div>
