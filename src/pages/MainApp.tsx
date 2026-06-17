@@ -5,34 +5,8 @@ import { useLocalStorage } from '../hooks/useLocalStorage';
 import { logout } from '../lib/firebaseUtils';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-
-const LOCALIZATION: Record<string, { idle: string; listening: string; translating: string }> = {
-  ko: {
-    idle: "마이크를 한 번 터치하고 한국어로 말씀하세요",
-    listening: "듣고 있습니다 (끝나면 다시 터치하세요)...",
-    translating: "번역 중..."
-  },
-  en: {
-    idle: "Tap the microphone once to speak",
-    listening: "Listening (Tap again to stop)...",
-    translating: "Translating..."
-  },
-  ja: {
-    idle: "マイクをタップしてお話しください",
-    listening: "聞き取っています (もう一度タップすると完了します)...",
-    translating: "翻訳しています..."
-  },
-  zh: {
-    idle: "请轻触麦克风说话",
-    listening: "倾听中 (再次轻触完成)...",
-    translating: "翻译中..."
-  },
-  es: {
-    idle: "Toca el micrófono una vez para hablar",
-    listening: "Escuchando (Toca de nuevo para terminar)...",
-    translating: "Traduciendo..."
-  }
-};
+import { HelpModal } from '../components/HelpModal';
+import { LOCALIZATION } from '../constants/localization';
 
 export default function App() {
   const [foreignerLang, setForeignerLang] = useLocalStorage<string>('app_foreignerLang', 'ja');
@@ -437,23 +411,26 @@ export default function App() {
     <div className="flex flex-col h-[100dvh] w-full max-w-md mx-auto relative shadow-2xl overflow-y-auto font-sans bg-white">
       {/* Top Half: Foreigner View */}
       <div className="flex-1 shrink-0 relative bg-[#552c24] text-white flex flex-col p-8 pb-24">
-        <div className="flex justify-between items-center mb-6">
-          <div className="flex items-center gap-2 bg-black/20 hover:bg-black/30 transition-colors px-3 py-1.5 rounded-full text-sm font-medium z-10 w-fit">
-            <Languages size={16} className="text-[#ffcd4a]" />
-            <select
-              value={foreignerLang}
-              onChange={(e) => setForeignerLang(e.target.value)}
-              className="bg-transparent text-white outline-none cursor-pointer appearance-none pr-4"
-              style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23FFFFFF%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right center', backgroundSize: '0.65em auto' }}
-            >
-              <option value="en" className="text-black">영어</option>
-              <option value="ja" className="text-black">일본어</option>
-              <option value="es" className="text-black">스페인어</option>
-              <option value="zh" className="text-black">중국어</option>
-            </select>
+        <div className="flex justify-between items-start mb-6">
+          <div className="flex flex-col gap-3 z-10">
+            <span className="font-bold text-[13px] tracking-wide text-[#ffcd4a]/90 flex items-center">{foreignLoc.title}</span>
+            <div className="flex items-center gap-2 bg-black/20 hover:bg-black/30 transition-colors px-3 py-1.5 rounded-full text-sm font-medium w-fit">
+              <Languages size={16} className="text-[#ffcd4a]" />
+              <select
+                value={foreignerLang}
+                onChange={(e) => setForeignerLang(e.target.value)}
+                className="bg-transparent text-white outline-none cursor-pointer appearance-none pr-4"
+                style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23FFFFFF%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right center', backgroundSize: '0.65em auto' }}
+              >
+                <option value="en" className="text-black">영어</option>
+                <option value="ja" className="text-black">일본어</option>
+                <option value="es" className="text-black">스페인어</option>
+                <option value="zh" className="text-black">중국어</option>
+              </select>
+            </div>
           </div>
           
-          <div className="flex items-center gap-2 z-10">
+          <div className="flex items-center gap-2 z-10 pt-1">
             {isAdmin && (
               <button 
                 onClick={() => navigate('/admin')}
@@ -516,6 +493,12 @@ export default function App() {
       {/* Bottom Half: User (Korean) View */}
       <div className="flex-1 shrink-0 relative bg-white text-[#552c24] flex flex-col p-8 pt-24">
         
+        <div className="absolute top-6 left-8 z-10">
+          <span className="font-bold text-[13px] opacity-50 tracking-wide flex items-center gap-1.5">
+            {userLoc.title}
+          </span>
+        </div>
+
         <div className="sticky top-8 left-0 right-0 flex justify-center z-10 h-0 overflow-visible pointer-events-none">
           <button
             onClick={toggleUserMic}
@@ -564,50 +547,7 @@ export default function App() {
       </div>
 
       {/* Help Modal */}
-      {showHelp && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-[2px]">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-[320px] overflow-hidden flex flex-col animate-in fade-in zoom-in duration-200">
-            <div className="bg-[#552c24] text-[#ffcd4a] p-4 flex justify-between items-center">
-              <h2 className="text-base font-bold flex items-center gap-2">
-                <HelpCircle size={18} />
-                사용 방법
-              </h2>
-              <button 
-                onClick={() => setShowHelp(false)}
-                className="p-1 hover:bg-white/10 rounded-full transition-colors"
-                aria-label="닫기"
-              >
-                <X size={20} />
-              </button>
-            </div>
-            <div className="p-5 text-[#552c24] flex flex-col gap-6 text-[15px]">
-              <div className="space-y-3">
-                <h3 className="font-bold border-b border-black/10 pb-1 flex items-center gap-2">
-                  <span>🗣️</span> 내가 말할 때 <span className="font-normal text-xs opacity-70 ml-1">(한국어)</span>
-                </h3>
-                <ol className="list-decimal pl-4 space-y-1.5 text-black/80 font-medium">
-                  <li>왼쪽 위에서 번역할 언어 선택</li>
-                  <li><strong>아래쪽 흰색 배경</strong>의 마이크 누르기</li>
-                  <li>말하기가 끝나면 정지(⏹️) 누르기</li>
-                  <li>외국어로 번역되어 음성 출력 완료</li>
-                </ol>
-              </div>
-              
-              <div className="space-y-3">
-                <h3 className="font-bold border-b border-black/10 pb-1 flex items-center gap-2">
-                  <span>👂</span> 상대방이 말할 때 <span className="font-normal text-xs opacity-70 ml-1">(외국어)</span>
-                </h3>
-                <ol className="list-decimal pl-4 space-y-1.5 text-black/80 font-medium">
-                  <li><strong>위쪽 갈색 배경</strong>의 마이크 누르기</li>
-                  <li>상대방 이야기 듣기</li>
-                  <li>말이 끝나면 정지(⏹️) 누르기</li>
-                  <li>한국어로 번역되어 음성 출력 완료</li>
-                </ol>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
     </div>
   );
 }
