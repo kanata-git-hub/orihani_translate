@@ -45,6 +45,17 @@ export function HelpModal({ onClose }: HelpModalProps) {
               <li>한국어로 번역되어 음성 출력 완료</li>
             </ol>
           </div>
+
+          <div className="space-y-3">
+            <h3 className="font-bold border-b border-black/10 pb-1 flex items-center gap-2">
+              <span>📷</span> 이미지 번역할 때
+            </h3>
+            <ol className="list-decimal pl-4 space-y-1.5 text-black/80 font-medium">
+              <li>하단의 <strong>[이미지 번역]</strong> 버튼 누르기</li>
+              <li>카메라로 사진을 찍거나 갤러리에서 선택</li>
+              <li>한국어로 자동 번역된 결과 확인</li>
+            </ol>
+          </div>
         </div>
       </div>
     </div>
