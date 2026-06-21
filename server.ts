@@ -336,6 +336,47 @@ TRANSLATION:
     }
   });
 
+  app.post("/api/translate-image", async (req, res) => {
+    try {
+      const { image, mimeType, targetLang } = req.body;
+      const ai = getAi();
+      
+      const codeMap: Record<string, string> = {
+        "ko": "Korean",
+        "en": "English",
+        "ja": "Japanese",
+        "es": "Spanish",
+        "zh": "Chinese"
+      };
+      
+      const languageName = codeMap[targetLang?.toLowerCase()] || "Korean";
+
+      const response = await fetchWithBackoff(() => ai.models.generateContent({
+        model: 'gemini-3.5-flash',
+        contents: [
+          {
+            role: "user",
+            parts: [
+              {
+                text: `Extract all meaningful text from this image and translate it to casually polite ${languageName}. Output ONLY the translated text, no other descriptions or formatting.`
+              },
+              {
+                inlineData: {
+                  data: image,
+                  mimeType: mimeType
+                }
+              }
+            ]
+          }
+        ]
+      }));
+      res.json({ translatedText: response.text });
+    } catch (e: any) {
+      console.error("Image Translation Error:", e);
+      res.status(500).json({ error: e.message });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");
