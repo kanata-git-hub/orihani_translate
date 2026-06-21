@@ -341,24 +341,24 @@ TRANSLATION:
       const { image, mimeType, targetLang } = req.body;
       const ai = getAi();
       
-      const codeMap: Record<string, string> = {
-        "ko": "Korean",
-        "en": "English",
-        "ja": "Japanese",
-        "es": "Spanish",
-        "zh": "Chinese"
-      };
-      
-      const languageName = codeMap[targetLang?.toLowerCase()] || "Korean";
-
       const response = await fetchWithBackoff(() => ai.models.generateContent({
-        model: 'gemini-3.5-flash',
+        model: 'gemini-3.1-pro-preview',
         contents: [
           {
             role: "user",
             parts: [
               {
-                text: `Extract all meaningful text from this image and translate it to casually polite ${languageName}. Output ONLY the translated text, no other descriptions or formatting.`
+                text: `Translate text in this image into natural, casually polite Korean. Identify all distinct textual regions. 
+Return your response STRICTLY as a valid JSON array of objects. Do NOT use markdown code blocks (\`\`\`json).
+Each item in the JSON array MUST be an object containing:
+- "ymin": integer (0 to 1000 scale) representing the top edge of the bounding box.
+- "xmin": integer (0 to 1000 scale) representing the left edge.
+- "ymax": integer (0 to 1000 scale) representing the bottom edge.
+- "xmax": integer (0 to 1000 scale) representing the right edge.
+- "translatedText": The Korean translation of the text in this specific region.
+- "bgColor": The dominant background hex color of this text region (e.g., "#ffffff").
+- "textColor": The dominant text hex color (e.g., "#000000").
+If no text is found, return an empty array [].`
               },
               {
                 inlineData: {
@@ -368,9 +368,22 @@ TRANSLATION:
               }
             ]
           }
-        ]
+        ],
+        config: {
+          responseMimeType: "application/json"
+        }
       }));
-      res.json({ translatedText: response.text });
+
+      let textOutput = response.text || "[]";
+      let regions = [];
+      try {
+        regions = JSON.parse(textOutput);
+      } catch(e) {
+        console.error("JSON Error", e, textOutput);
+        regions = [];
+      }
+      
+      res.json({ regions });
     } catch (e: any) {
       console.error("Image Translation Error:", e);
       res.status(500).json({ error: e.message });
