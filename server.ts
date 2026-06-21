@@ -151,10 +151,15 @@ TRANSLATION:
             }));
           } else {
             // Processing text directly
+            let systemPrompt = `You are an accurate translator. Translate the given text to ${targetLang} in a casually polite tone. Output ONLY the raw translated text, with no markdown, intro, or labels.`;
+            if (msg.previousText) {
+               systemPrompt += `\n\nFor context, the speaker previously said: "${msg.previousText}". Ensure the translation flows naturally from this context.`;
+            }
+
             responseStream = await fetchWithBackoff(() => ai.models.generateContentStream({
               model: "gemini-3.5-flash",
               config: {
-                systemInstruction: `You are an accurate translator. Translate the given text to ${targetLang} in a casually polite tone. Output ONLY the raw translated text, with no markdown, intro, or labels.`
+                systemInstruction: systemPrompt
               },
               contents: [
                 {
