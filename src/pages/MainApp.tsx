@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Languages, Volume2, Loader2, LogOut, Shield, HelpCircle, X, Camera } from 'lucide-react';
+import { Mic, Square, Languages, Volume2, Loader2, LogOut, Shield, HelpCircle, X } from 'lucide-react';
 import { pcmToBase64, playAudioChunk, resetAudioQueue, setHoldPlayback } from '../audio';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { logout } from '../lib/firebaseUtils';
@@ -27,63 +27,6 @@ export default function App() {
   
   const [foreignerText, setForeignerText] = useState('');
   const [userText, setUserText] = useState('');
-  
-  const [isUploadingImage, setIsUploadingImage] = useState(false);
-  
-  interface TextRegion {
-    ymin: number;
-    xmin: number;
-    ymax: number;
-    xmax: number;
-    translatedText: string;
-    bgColor: string;
-    textColor: string;
-  }
-  
-  const [imageTranslateModal, setImageTranslateModal] = useState<{imageUrl: string, regions: TextRegion[] | null, error?: string} | null>(null);
-
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (e.target) {
-      e.target.value = ''; // Reset input
-    }
-
-    const reader = new FileReader();
-    reader.onload = async (event) => {
-      const base64Url = event.target?.result as string;
-      const base64Data = base64Url.split(',')[1];
-      
-      setImageTranslateModal({ imageUrl: base64Url, regions: null });
-      setIsUploadingImage(true);
-
-      try {
-        const res = await fetch("/api/translate-image", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ 
-            image: base64Data, 
-            mimeType: file.type,
-            targetLang: "ko"
-          })
-        });
-
-        const data = await res.json();
-        
-        if (res.ok) {
-          setImageTranslateModal(prev => prev ? { ...prev, regions: data.regions } : null);
-        } else {
-          setImageTranslateModal(prev => prev ? { ...prev, error: "번역 오류: " + data.error } : null);
-        }
-      } catch (err) {
-        setImageTranslateModal(prev => prev ? { ...prev, error: "네트워크 오류가 발생했습니다." } : null);
-      } finally {
-        setIsUploadingImage(false);
-      }
-    };
-    reader.readAsDataURL(file);
-  };
   
   const foreignerCompleteRef = useRef('');
   const userCompleteRef = useRef('');
@@ -592,12 +535,7 @@ export default function App() {
           </div>
         </div>
         
-        <div className="absolute bottom-6 right-6 z-10 flex items-center gap-2">
-          <label className="flex items-center gap-1.5 bg-black/5 hover:bg-black/10 transition-colors px-3 py-1.5 rounded-full text-xs font-bold text-[#552c24] cursor-pointer">
-            {isUploadingImage ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />}
-            이미지 번역
-            <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
-          </label>
+        <div className="absolute bottom-6 right-6 z-10">
           <button 
             onClick={() => setShowHelp(true)}
             className="flex items-center gap-1.5 bg-black/5 hover:bg-black/10 transition-colors px-3 py-1.5 rounded-full text-xs font-bold text-[#552c24]"
@@ -607,86 +545,6 @@ export default function App() {
           </button>
         </div>
       </div>
-
-      {/* Image Translate Modal */}
-      {imageTranslateModal && (
-        <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm animate-in fade-in duration-200">
-          <div className="bg-[#111] w-full h-[95%] sm:h-[90%] sm:max-w-md sm:rounded-t-3xl overflow-hidden flex flex-col slide-in-from-bottom-8 mt-auto sm:mt-0 shadow-2xl relative">
-            <div className="flex justify-between items-center p-4 bg-black border-b border-white/10 text-white shrink-0">
-              <div className="flex items-center gap-2 font-bold text-[#ffcd4a]">
-                <Camera size={18} />
-                이미지 번역
-              </div>
-              <button 
-                onClick={() => setImageTranslateModal(null)}
-                className="p-1 hover:bg-white/10 rounded-full transition-colors text-white/70"
-              >
-                <X size={24} />
-              </button>
-            </div>
-            
-            <div className="relative flex-1 bg-black/5 overflow-hidden flex flex-col items-center justify-center p-4">
-              {imageTranslateModal.error ? (
-                <div className="bg-white p-6 rounded-2xl text-red-500 shadow-xl font-medium max-w-[80%] text-center">
-                  {imageTranslateModal.error}
-                </div>
-              ) : (
-                <div className="relative inline-flex max-w-full max-h-full items-center justify-center rounded-lg overflow-hidden shrink-0 shadow-2xl">
-                  <img 
-                    src={imageTranslateModal.imageUrl} 
-                    alt="Uploaded source" 
-                    className="block shadow-xl max-w-full max-h-full shrink-0"
-                  />
-                  
-                  {imageTranslateModal.regions ? (
-                    <div className="absolute top-0 left-0 w-full h-full pointer-events-none">
-                      {imageTranslateModal.regions.map((r, i) => {
-                        const top = r.ymin / 10;
-                        const left = r.xmin / 10;
-                        const width = (r.xmax - r.xmin) / 10;
-                        const height = (r.ymax - r.ymin) / 10;
-                        
-                        return (
-                          <div key={i} style={{
-                            position: 'absolute',
-                            top: `${top}%`,
-                            left: `${left}%`,
-                            width: `${width}%`,
-                            height: `${height}%`,
-                            backgroundColor: r.bgColor || '#ffffff',
-                            color: r.textColor || '#000000',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            overflow: 'hidden',
-                            padding: '1%',
-                            fontWeight: 'bold',
-                            textAlign: 'center',
-                            fontSize: 'max(10px, min(1.8cqw, 20px))',
-                            containerType: 'size',
-                            whiteSpace: 'pre-wrap',
-                            lineHeight: '1.2',
-                            borderRadius: '2px',
-                            boxShadow: '0 1px 3px rgba(0,0,0,0.3)',
-                            zIndex: 10
-                          }}>
-                            {r.translatedText}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : (
-                    <div className="absolute inset-0 bg-black/60 flex items-center justify-center flex-col gap-3 text-white backdrop-blur-[1px] z-20">
-                      <Loader2 size={32} className="animate-spin text-[#ffcd4a]" />
-                      <p className="font-bold drop-shadow-md">이미지 분석 및 번역 중...</p>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Help Modal */}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
