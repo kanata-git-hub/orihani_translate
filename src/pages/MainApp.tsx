@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Languages, Volume2, Loader2, LogOut, Shield, HelpCircle, X } from 'lucide-react';
+import { Mic, Square, Languages, Volume2, Loader2, LogOut, Shield, HelpCircle, X, Camera } from 'lucide-react';
 import { pcmToBase64, playAudioChunk, resetAudioQueue, setHoldPlayback } from '../audio';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { logout } from '../lib/firebaseUtils';
@@ -27,6 +27,52 @@ export default function App() {
   
   const [foreignerText, setForeignerText] = useState('');
   const [userText, setUserText] = useState('');
+  
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const [imageTranslateModal, setImageTranslateModal] = useState<{imageUrl: string, translatedText: string | null} | null>(null);
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (e.target) {
+      e.target.value = ''; // Reset input
+    }
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      const base64Url = event.target?.result as string;
+      const base64Data = base64Url.split(',')[1];
+      
+      setImageTranslateModal({ imageUrl: base64Url, translatedText: null });
+      setIsUploadingImage(true);
+
+      try {
+        const res = await fetch("/api/translate-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ 
+            image: base64Data, 
+            mimeType: file.type,
+            targetLang: "ko"
+          })
+        });
+
+        const data = await res.json();
+        
+        if (res.ok) {
+          setImageTranslateModal(prev => prev ? { ...prev, translatedText: data.translatedText } : null);
+        } else {
+          setImageTranslateModal(prev => prev ? { ...prev, translatedText: "번역 오류: " + data.error } : null);
+        }
+      } catch (err) {
+        setImageTranslateModal(prev => prev ? { ...prev, translatedText: "네트워크 오류가 발생했습니다." } : null);
+      } finally {
+        setIsUploadingImage(false);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
   
   const foreignerCompleteRef = useRef('');
   const userCompleteRef = useRef('');
@@ -535,7 +581,12 @@ export default function App() {
           </div>
         </div>
         
-        <div className="absolute bottom-6 right-6 z-10">
+        <div className="absolute bottom-6 right-6 z-10 flex items-center gap-2">
+          <label className="flex items-center gap-1.5 bg-black/5 hover:bg-black/10 transition-colors px-3 py-1.5 rounded-full text-xs font-bold text-[#552c24] cursor-pointer">
+            {isUploadingImage ? <Loader2 size={15} className="animate-spin" /> : <Camera size={15} />}
+            이미지 번역
+            <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} />
+          </label>
           <button 
             onClick={() => setShowHelp(true)}
             className="flex items-center gap-1.5 bg-black/5 hover:bg-black/10 transition-colors px-3 py-1.5 rounded-full text-xs font-bold text-[#552c24]"
@@ -545,6 +596,50 @@ export default function App() {
           </button>
         </div>
       </div>
+
+      {/* Image Translate Modal */}
+      {imageTranslateModal && (
+        <div className="absolute inset-0 z-[100] flex items-center justify-center bg-black/90 backdrop-blur-sm animate-in fade-in duration-200">
+          <div className="bg-white w-full h-[95%] sm:h-[90%] sm:max-w-md sm:rounded-t-3xl overflow-hidden flex flex-col slide-in-from-bottom-8 mt-auto sm:mt-0 shadow-2xl relative">
+            <div className="flex justify-between items-center p-4 bg-[#552c24] text-white shrink-0">
+              <div className="flex items-center gap-2 font-bold text-[#ffcd4a]">
+                <Camera size={18} />
+                이미지 번역
+              </div>
+              <button 
+                onClick={() => setImageTranslateModal(null)}
+                className="p-1 hover:bg-white/10 rounded-full transition-colors"
+              >
+                <X size={24} />
+              </button>
+            </div>
+            
+            <div className="relative flex-1 bg-black/5 overflow-hidden flex flex-col">
+              <div className="h-2/5 shrink-0 bg-black flex items-center justify-center p-4 overflow-hidden relative">
+                <img 
+                  src={imageTranslateModal.imageUrl} 
+                  alt="Uploaded source" 
+                  className="max-w-full max-h-full object-contain"
+                />
+              </div>
+              
+              <div className="flex-1 bg-white p-6 overflow-y-auto">
+                <h3 className="text-sm font-bold opacity-50 mb-3 uppercase tracking-wider">번역 결과</h3>
+                {imageTranslateModal.translatedText ? (
+                  <p className="text-xl sm:text-2xl leading-relaxed text-[#552c24] font-medium whitespace-pre-wrap">
+                    {imageTranslateModal.translatedText}
+                  </p>
+                ) : (
+                  <div className="flex flex-col items-center justify-center h-full gap-3 opacity-50">
+                    <Loader2 size={32} className="animate-spin text-[#ffcd4a]" />
+                    <p className="font-medium">이미지 텍스트를 추출하고 번역하는 중입니다...</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Help Modal */}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
