@@ -277,11 +277,13 @@ export default function App() {
 
         if (newFinals.trim()) {
            setProcessingRole(role);
+           const currentComplete = role === 'foreigner' ? foreignerCompleteRef.current : userCompleteRef.current;
            getEnsureWs().then(ws => {
               ws.send(JSON.stringify({ 
                type: 'process_text',
                role: role,
                text: newFinals.trim(),
+               previousText: currentComplete.trim(),
                targetLanguageCode: role === 'foreigner' ? 'Korean' : foreignerLang
              }));
            }).catch(console.error);
@@ -338,11 +340,13 @@ export default function App() {
     // Immediately process any pending text
     if (roleToProcess && capturedUnfinalized) {
       setProcessingRole(roleToProcess);
+      const currentComplete = roleToProcess === 'foreigner' ? foreignerCompleteRef.current : userCompleteRef.current;
       getEnsureWs().then(ws => {
           ws.send(JSON.stringify({ 
           type: 'process_text',
           role: roleToProcess,
           text: capturedUnfinalized,
+          previousText: currentComplete.trim(),
           targetLanguageCode: roleToProcess === 'foreigner' ? 'Korean' : currentLang
         }));
       }).catch(console.error);
