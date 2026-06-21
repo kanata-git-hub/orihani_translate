@@ -1,35 +1,3 @@
-export function pcmToBase64(pcmData: Float32Array, sampleRate: number): string {
-  // Downsample to 16000Hz if needed using linear interpolation
-  const targetRate = 16000;
-  let resampledData = pcmData;
-  if (sampleRate !== targetRate) {
-    const ratio = sampleRate / targetRate;
-    const newLength = Math.round(pcmData.length / ratio);
-    resampledData = new Float32Array(newLength);
-    for (let i = 0; i < newLength; i++) {
-       const pos = i * ratio;
-       const index = Math.floor(pos);
-       const weight = pos - index;
-       const v0 = pcmData[index];
-       const v1 = index + 1 < pcmData.length ? pcmData[index + 1] : v0;
-       resampledData[i] = v0 + weight * (v1 - v0);
-    }
-  }
-
-  const buffer = new ArrayBuffer(resampledData.length * 2);
-  const view = new DataView(buffer);
-  for (let i = 0; i < resampledData.length; i++) {
-    const s = Math.max(-1, Math.min(1, resampledData[i]));
-    view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-  }
-  let binary = "";
-  const bytes = new Uint8Array(buffer);
-  for (let i = 0; i < bytes.byteLength; i++) {
-    binary += String.fromCharCode(bytes[i]);
-  }
-  return btoa(binary);
-}
-
 let nextStartTime = 0;
 let holdPlayback = false;
 const audioQueue: string[] = [];

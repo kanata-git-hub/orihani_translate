@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { Mic, Square, Languages, Volume2, Loader2, LogOut, Shield, HelpCircle, X } from 'lucide-react';
-import { pcmToBase64, playAudioChunk, resetAudioQueue, setHoldPlayback } from '../audio';
+import { playAudioChunk, resetAudioQueue, setHoldPlayback } from '../audio';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { logout } from '../lib/firebaseUtils';
 import { useNavigate } from 'react-router-dom';
@@ -38,7 +38,6 @@ export default function App() {
 
   const lastProcessedIndex = useRef(0);
   const unfinalizedBufferRef = useRef('');
-  const lastFinalizedTimeRef = useRef<number>(0);
 
   const [playingTTS, setPlayingTTS] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -50,6 +49,12 @@ export default function App() {
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didRestartRef = useRef<boolean>(false);
   const outCtxRef = useRef<AudioContext | null>(null);
+
+  const lastUserOriginalSpeechRef = useRef<{text: string, time: number}>({text: '', time: 0});
+  const lastForeignerOriginalSpeechRef = useRef<{text: string, time: number}>({text: '', time: 0});
+  const lastSpeakerRef = useRef<string | null>(null);
+  const lastStopTimeRef = useRef<number>(0);
+  const activeTurnContextRef = useRef<string>('');
 
   const resetSilenceTimer = () => {
     if (silenceTimerRef.current) {
@@ -187,6 +192,20 @@ export default function App() {
   };
 
   const startRecording = async (role: 'foreigner' | 'user') => {
+    if (lastSpeakerRef.current === 'user' && userCompleteRef.current.trim()) {
+       lastUserOriginalSpeechRef.current = { text: userCompleteRef.current, time: lastStopTimeRef.current };
+    } else if (lastSpeakerRef.current === 'foreigner' && foreignerCompleteRef.current.trim()) {
+       lastForeignerOriginalSpeechRef.current = { text: foreignerCompleteRef.current, time: lastStopTimeRef.current };
+    }
+    lastSpeakerRef.current = role;
+
+    const opponentSpeechObj = role === 'foreigner' ? lastUserOriginalSpeechRef.current : lastForeignerOriginalSpeechRef.current;
+    if (Date.now() - opponentSpeechObj.time < 2 * 60 * 1000) {
+       activeTurnContextRef.current = opponentSpeechObj.text;
+    } else {
+       activeTurnContextRef.current = '';
+    }
+
     setActiveMic(role);
     setForeignerText('');
     setUserText('');
@@ -261,7 +280,6 @@ export default function App() {
           if (event.results[i].isFinal) {
             newFinals += event.results[i][0].transcript + ' ';
             lastProcessedIndex.current = i + 1;
-            lastFinalizedTimeRef.current = performance.now();
           } else {
             unfinalized += event.results[i][0].transcript;
           }
@@ -278,12 +296,14 @@ export default function App() {
         if (newFinals.trim()) {
            setProcessingRole(role);
            const currentComplete = role === 'foreigner' ? foreignerCompleteRef.current : userCompleteRef.current;
+           const opponentComplete = activeTurnContextRef.current;
            getEnsureWs().then(ws => {
               ws.send(JSON.stringify({ 
                type: 'process_text',
                role: role,
                text: newFinals.trim(),
                previousText: currentComplete.trim(),
+               opponentText: opponentComplete.trim(),
                targetLanguageCode: role === 'foreigner' ? 'Korean' : foreignerLang
              }));
            }).catch(console.error);
@@ -316,6 +336,7 @@ export default function App() {
   };
 
   const stopRecording = () => {
+    lastStopTimeRef.current = Date.now();
     if (sessionTimeoutRef.current) {
       clearTimeout(sessionTimeoutRef.current);
       sessionTimeoutRef.current = null;
@@ -341,12 +362,14 @@ export default function App() {
     if (roleToProcess && capturedUnfinalized) {
       setProcessingRole(roleToProcess);
       const currentComplete = roleToProcess === 'foreigner' ? foreignerCompleteRef.current : userCompleteRef.current;
+      const opponentComplete = activeTurnContextRef.current;
       getEnsureWs().then(ws => {
           ws.send(JSON.stringify({ 
           type: 'process_text',
           role: roleToProcess,
           text: capturedUnfinalized,
           previousText: currentComplete.trim(),
+          opponentText: opponentComplete.trim(),
           targetLanguageCode: roleToProcess === 'foreigner' ? 'Korean' : currentLang
         }));
       }).catch(console.error);

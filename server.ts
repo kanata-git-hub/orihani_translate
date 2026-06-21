@@ -5,8 +5,7 @@ import { fileURLToPath } from "url";
 import http from "http";
 import dotenv from "dotenv";
 import { WebSocketServer, WebSocket } from "ws";
-import { GoogleGenAI, Modality } from "@google/genai";
-import type { LiveServerMessage } from "@google/genai";
+import { GoogleGenAI } from "@google/genai";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -63,15 +62,10 @@ async function startServer() {
         return;
       }
 
-      const state = sessions.get(clientWs) || { pcmBuffer: [], processPromise: Promise.resolve() };
+      const state = sessions.get(clientWs) || { processPromise: Promise.resolve() };
       sessions.set(clientWs, state);
 
-      if (msg.type === "audio_chunk" && msg.audio) {
-        state.pcmBuffer.push(Buffer.from(msg.audio, 'base64'));
-        return;
-      }
-
-      if (msg.type === "process_text" || msg.type === "process_audio") {
+      if (msg.type === "process_text") {
         state.processPromise = state.processPromise.then(async () => {
           if (state?.session) {
             state.session = null;
@@ -93,67 +87,14 @@ async function startServer() {
             
             let responseStream;
           
-          if (msg.type === "process_audio") {
-            let pcmBuffer: Buffer;
-            if (msg.audio) {
-               pcmBuffer = Buffer.from(msg.audio, 'base64');
-            } else if (state.pcmBuffer.length > 0) {
-               pcmBuffer = Buffer.concat(state.pcmBuffer);
-               state.pcmBuffer = []; // reset
-            } else {
-               return;
-            }
-            const wavHeader = Buffer.alloc(44);
-            wavHeader.write("RIFF", 0);
-            wavHeader.writeUInt32LE(36 + pcmBuffer.length, 4);
-            wavHeader.write("WAVE", 8);
-            wavHeader.write("fmt ", 12);
-            wavHeader.writeUInt32LE(16, 16); // Subchunk1Size (16 for PCM)
-            wavHeader.writeUInt16LE(1, 20); // AudioFormat (1 for PCM)
-            wavHeader.writeUInt16LE(1, 22); // NumChannels
-            wavHeader.writeUInt32LE(16000, 24); // SampleRate
-            wavHeader.writeUInt32LE(16000 * 2, 28); // ByteRate
-            wavHeader.writeUInt16LE(2, 32); // BlockAlign
-            wavHeader.writeUInt16LE(16, 34); // BitsPerSample
-            wavHeader.write("data", 36);
-            wavHeader.writeUInt32LE(pcmBuffer.length, 40);
-
-            const wavBuffer = Buffer.concat([wavHeader, pcmBuffer]);
-            const wavBase64 = wavBuffer.toString('base64');
-
-            responseStream = await fetchWithBackoff(() => ai.models.generateContentStream({
-              model: "gemini-3.5-flash",
-              contents: [
-                {
-                  role: "user",
-                  parts: [
-                    {
-                      text: `You are an accurate translator. Listen to the audio. 
-If the targetLanguageCode is "ko", translate the audio to casually polite Korean. 
-If the targetLanguageCode is not "ko" (e.g., "en", "ja"), translate the audio to that language in a casually polite tone.
-Target Language Code: ${targetLang}
-
-Output your response strictly in the following format:
-TRANSCRIPTION:
-<the exact string of what was spoken in the audio>
-TRANSLATION:
-<the casually polite translated string>`
-                    },
-                    {
-                      inlineData: {
-                        mimeType: "audio/wav",
-                        data: wavBase64
-                      }
-                    }
-                  ]
-                }
-              ]
-            }));
-          } else {
             // Processing text directly
-            let systemPrompt = `You are an accurate translator. Translate the given text to ${targetLang} in a casually polite tone. Output ONLY the raw translated text, with no markdown, intro, or labels.`;
-            if (msg.previousText) {
-               systemPrompt += `\n\nFor context, the speaker previously said: "${msg.previousText}". Ensure the translation flows naturally from this context.`;
+            let systemPrompt = `You are an expert conversational translator. Translate the given text to ${targetLang} in a casually polite tone. Output ONLY the raw translated text, with no markdown, intro, or labels.`;
+            
+            if (msg.opponentText || msg.previousText) {
+               systemPrompt += `\n\n--- CONVERSATION CONTEXT ---`;
+               if (msg.opponentText) systemPrompt += `\nThe other person recently said: "${msg.opponentText}"`;
+               if (msg.previousText) systemPrompt += `\nThe speaker previously said: "${msg.previousText}"`;
+               systemPrompt += `\n----------------------------\nEnsure the translation flows naturally as a realistic dialogue response based on this context.`;
             }
 
             responseStream = await fetchWithBackoff(() => ai.models.generateContentStream({
@@ -175,10 +116,9 @@ TRANSLATION:
               inputTranscription: msg.text,
               partial: true
             }));
-          }
 
           let bufferStr = "";
-          let finalTranscription = msg.type === "process_text" ? msg.text : "";
+          let finalTranscription = msg.text;
           let finalTranslation = "";
 
           let lastTranslLength = 0;
@@ -216,17 +156,7 @@ TRANSLATION:
             bufferStr += chunk.text;
             
             let currTrans = finalTranscription;
-            let currTransl = finalTranslation;
-
-            if (msg.type === "process_audio") {
-              const transcrMatch = bufferStr.match(/TRANSCRIPTION:\s*([\s\S]*?)(?=\nTRANSLATION:|$)/);
-              const translMatch = bufferStr.match(/TRANSLATION:\s*([\s\S]*)$/);
-              
-              if (transcrMatch) currTrans = transcrMatch[1];
-              if (translMatch) currTransl = translMatch[1];
-            } else {
-              currTransl = bufferStr;
-            }
+            let currTransl = bufferStr;
             
             finalTranscription = currTrans;
             finalTranslation = currTransl;
