@@ -81,6 +81,7 @@ async function startServer() {
           const rawTarget = msg.targetLanguageCode || "Korean";
           const targetLang = codeMap[rawTarget.toLowerCase()] || rawTarget;
           const role = msg.role;
+          const ttsEnabled = msg.ttsEnabled !== false;
           
           try {
             const ai = getAi();
@@ -126,6 +127,7 @@ async function startServer() {
           let ttsPromise = Promise.resolve();
 
           const queueTts = (textToSpeak: string) => {
+            if (!ttsEnabled) return;
             ttsPromise = ttsPromise.then(async () => {
               try {
                 const ttsStream = await fetchWithBackoff(() => ai.models.generateContentStream({
@@ -195,7 +197,7 @@ async function startServer() {
             return;
           }
 
-          if (unprocessedTranslationBuffer.trim()) {
+          if (unprocessedTranslationBuffer.trim() && ttsEnabled) {
             queueTts(unprocessedTranslationBuffer.trim());
           }
 
