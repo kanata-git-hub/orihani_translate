@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Languages, Volume2, Loader2, LogOut, Shield, HelpCircle, X } from 'lucide-react';
+import { Mic, Square, Languages, Volume2, VolumeX, Loader2, LogOut, Shield, HelpCircle, X } from 'lucide-react';
 import { playAudioChunk, resetAudioQueue, setHoldPlayback } from '../audio';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { logout } from '../lib/firebaseUtils';
@@ -10,6 +10,13 @@ import { LOCALIZATION } from '../constants/localization';
 
 export default function App() {
   const [foreignerLang, setForeignerLang] = useLocalStorage<string>('app_foreignerLang', 'ja');
+  const [ttsEnabled, setTtsEnabled] = useLocalStorage<boolean>('app_tts_enabled', true);
+  const ttsEnabledRef = useRef(ttsEnabled);
+  
+  useEffect(() => {
+    ttsEnabledRef.current = ttsEnabled;
+  }, [ttsEnabled]);
+
   const navigate = useNavigate();
   const { isAdmin } = useAuth();
   
@@ -304,7 +311,8 @@ export default function App() {
                text: newFinals.trim(),
                previousText: currentComplete.trim(),
                opponentText: opponentComplete.trim(),
-               targetLanguageCode: role === 'foreigner' ? 'Korean' : foreignerLang
+               targetLanguageCode: role === 'foreigner' ? 'Korean' : foreignerLang,
+               ttsEnabled: ttsEnabledRef.current
              }));
            }).catch(console.error);
         }
@@ -370,7 +378,8 @@ export default function App() {
           text: capturedUnfinalized,
           previousText: currentComplete.trim(),
           opponentText: opponentComplete.trim(),
-          targetLanguageCode: roleToProcess === 'foreigner' ? 'Korean' : currentLang
+          targetLanguageCode: roleToProcess === 'foreigner' ? 'Korean' : currentLang,
+          ttsEnabled: ttsEnabledRef.current
         }));
       }).catch(console.error);
     }
@@ -458,6 +467,15 @@ export default function App() {
           </div>
           
           <div className="flex items-center gap-2 z-10 pt-1">
+            <button
+              onClick={() => setTtsEnabled(!ttsEnabled)}
+              className={`flex items-center justify-center w-8 h-8 rounded-full transition-colors ${
+                ttsEnabled ? 'bg-[#ffcd4a] text-[#552c24] hover:bg-[#ffe18a]' : 'bg-black/20 text-white hover:bg-black/30'
+              }`}
+              title={ttsEnabled ? '자동 음성 재생 켜짐' : '자동 음성 재생 꺼짐'}
+            >
+              {ttsEnabled ? <Volume2 size={16} /> : <VolumeX size={16} />}
+            </button>
             {isAdmin && (
               <button 
                 onClick={() => navigate('/admin')}
