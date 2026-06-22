@@ -115,10 +115,6 @@ export default function App() {
           const currentMic = msg.role || activeMicRef.current;
           
           if (msg.partial) {
-             if (msg.inputTranscription) {
-               if (currentMic === 'foreigner') foreignerPendingRef.current = msg.inputTranscription;
-               else userPendingRef.current = msg.inputTranscription;
-             }
              if (msg.outputTranscription) {
                if (currentMic === 'foreigner') userPendingRef.current = msg.outputTranscription;
                else foreignerPendingRef.current = msg.outputTranscription;
@@ -302,6 +298,15 @@ export default function App() {
 
         if (newFinals.trim()) {
            setProcessingRole(role);
+           
+           if (role === 'foreigner') {
+              foreignerCompleteRef.current += (foreignerCompleteRef.current ? ' ' : '') + newFinals.trim();
+              setForeignerText((foreignerCompleteRef.current + " " + foreignerPendingRef.current).trim());
+           } else {
+              userCompleteRef.current += (userCompleteRef.current ? ' ' : '') + newFinals.trim();
+              setUserText((userCompleteRef.current + " " + userPendingRef.current).trim());
+           }
+
            const currentComplete = role === 'foreigner' ? foreignerCompleteRef.current : userCompleteRef.current;
            const opponentComplete = activeTurnContextRef.current;
            getEnsureWs().then(ws => {
@@ -367,8 +372,17 @@ export default function App() {
     }
     
     // Immediately process any pending text
-    if (roleToProcess && capturedUnfinalized) {
+    if (roleToProcess && capturedUnfinalized.trim()) {
       setProcessingRole(roleToProcess);
+      
+      if (roleToProcess === 'foreigner') {
+         foreignerCompleteRef.current += (foreignerCompleteRef.current ? ' ' : '') + capturedUnfinalized.trim();
+         setForeignerText((foreignerCompleteRef.current + " " + foreignerPendingRef.current).trim());
+      } else {
+         userCompleteRef.current += (userCompleteRef.current ? ' ' : '') + capturedUnfinalized.trim();
+         setUserText((userCompleteRef.current + " " + userPendingRef.current).trim());
+      }
+
       const currentComplete = roleToProcess === 'foreigner' ? foreignerCompleteRef.current : userCompleteRef.current;
       const opponentComplete = activeTurnContextRef.current;
       getEnsureWs().then(ws => {
