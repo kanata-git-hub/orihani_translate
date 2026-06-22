@@ -86,6 +86,13 @@ async function startServer() {
           try {
             const ai = getAi();
             
+            // immediately echo back the input transcription
+            clientWs.send(JSON.stringify({
+              role,
+              inputTranscription: msg.text,
+              partial: true
+            }));
+
             let responseStream;
           
             // Processing text directly
@@ -109,13 +116,6 @@ async function startServer() {
                   parts: [{ text: msg.text }]
                 }
               ]
-            }));
-            
-            // immediately echo back the input transcription
-            clientWs.send(JSON.stringify({
-              role,
-              inputTranscription: msg.text,
-              partial: true
             }));
 
           let bufferStr = "";
