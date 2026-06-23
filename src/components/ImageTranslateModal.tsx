@@ -68,9 +68,19 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
     
     if (!file) return;
 
+    // 1. 초고속 이미지 선-렌더링 (Fast initial image rendering)
+    const objectUrl = URL.createObjectURL(file);
+    setImageSrc(objectUrl);
+    setLoading(true);
+    setError('');
+
+    let isMounted = true;
+
     const processImage = async () => {
-      setLoading(true);
-      setError('');
+      // 2. 모션과 연산의 분리 (Wait for modal motion to complete)
+      await new Promise(resolve => setTimeout(resolve, 350));
+      if (!isMounted) return;
+
       try {
         const base64Data = await new Promise<string>((resolve, reject) => {
           const reader = new FileReader();
@@ -79,7 +89,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
           reader.readAsDataURL(file);
         });
 
-        setImageSrc(base64Data);
+        if (!isMounted) return;
 
         const base64 = base64Data.split(',')[1];
         const mimeType = file.type;
@@ -93,21 +103,30 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
           })
         });
 
+        if (!isMounted) return;
+
         if (!response.ok) {
           const err = await response.json();
           throw new Error(err.error || 'Failed to translate image');
         }
 
         const data = await response.json();
+        if (!isMounted) return;
         setBlocks(data.blocks || []);
       } catch (err: any) {
+        if (!isMounted) return;
         setError(err.message || 'Error processing image');
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
 
     processImage();
+
+    return () => {
+      isMounted = false;
+      URL.revokeObjectURL(objectUrl);
+    };
   }, [isOpen, file, targetLang]);
 
   return (
@@ -148,7 +167,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.3 }}
-                className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm"
+                className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-white/90"
               >
                 <Loader2 className="w-12 h-12 animate-spin text-[#ffcd4a] mb-4" />
                 <p className="text-[#552c24] font-medium animate-pulse">이미지를 분석하고 번역중입니다...</p>
