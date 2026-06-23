@@ -521,19 +521,29 @@ export default function App() {
         <div className="flex justify-between items-start mb-6">
           <div className="flex flex-col gap-3 z-10">
             <span className="font-bold text-[13px] tracking-wide text-[#ffcd4a]/90 flex items-center">{foreignLoc.title}</span>
-            <div className="flex items-center gap-2 bg-black/20 hover:bg-black/30 transition-colors px-3 py-1.5 rounded-full text-sm font-medium w-fit">
-              <Languages size={16} className="text-[#ffcd4a]" />
-              <select
-                value={foreignerLang}
-                onChange={(e) => setForeignerLang(e.target.value)}
-                className="bg-transparent text-white outline-none cursor-pointer appearance-none pr-4"
-                style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23FFFFFF%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right center', backgroundSize: '0.65em auto' }}
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="flex items-center gap-2 bg-black/20 hover:bg-black/30 transition-colors px-3 py-1.5 rounded-full text-sm font-medium w-fit">
+                <Languages size={16} className="text-[#ffcd4a]" />
+                <select
+                  value={foreignerLang}
+                  onChange={(e) => setForeignerLang(e.target.value)}
+                  className="bg-transparent text-white outline-none cursor-pointer appearance-none pr-4"
+                  style={{ backgroundImage: 'url("data:image/svg+xml;charset=US-ASCII,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%22292.4%22%20height%3D%22292.4%22%3E%3Cpath%20fill%3D%22%23FFFFFF%22%20d%3D%22M287%2069.4a17.6%2017.6%200%200%200-13-5.4H18.4c-5%200-9.3%201.8-12.9%205.4A17.6%2017.6%200%200%200%200%2082.2c0%205%201.8%209.3%205.4%2012.9l128%20127.9c3.6%203.6%207.8%205.4%2012.8%205.4s9.2-1.8%2012.8-5.4L287%2095c3.5-3.5%205.4-7.8%205.4-12.8%200-5-1.9-9.2-5.5-12.8z%22%2F%3E%3C%2Fsvg%3E")', backgroundRepeat: 'no-repeat', backgroundPosition: 'right center', backgroundSize: '0.65em auto' }}
+                >
+                  <option value="en" className="text-black">영어</option>
+                  <option value="ja" className="text-black">일본어</option>
+                  <option value="es" className="text-black">스페인어</option>
+                  <option value="zh" className="text-black">중국어</option>
+                </select>
+              </div>
+              <button 
+                onClick={handleReset}
+                className="flex items-center gap-1.5 bg-black/20 hover:bg-black/30 transition-colors px-3 py-1.5 rounded-full text-xs font-bold text-white/90"
+                title="대화 초기화"
               >
-                <option value="en" className="text-black">영어</option>
-                <option value="ja" className="text-black">일본어</option>
-                <option value="es" className="text-black">스페인어</option>
-                <option value="zh" className="text-black">중국어</option>
-              </select>
+                <RotateCcw size={14} />
+                초기화
+              </button>
             </div>
           </div>
           
@@ -737,23 +747,17 @@ export default function App() {
           </div>
         </div>
 
-        <div className="absolute bottom-6 right-6 z-10 flex items-center gap-2">
-          <button 
-            onClick={handleReset}
-            className="flex items-center gap-1.5 bg-black/5 hover:bg-black/10 transition-colors px-3 py-1.5 rounded-full text-xs font-bold text-[#552c24]"
-            title="대화 초기화"
-          >
-            <RotateCcw size={15} />
-            초기화
-          </button>
-          <button 
-            onClick={() => setShowHelp(true)}
-            className="flex items-center gap-1.5 bg-black/5 hover:bg-black/10 transition-colors px-3 py-1.5 rounded-full text-xs font-bold text-[#552c24]"
-          >
-            <HelpCircle size={15} />
-            사용법
-          </button>
-        </div>
+        {inputTypeUser === 'mic' && (
+          <div className="absolute bottom-6 right-6 z-10">
+            <button 
+              onClick={() => setShowHelp(true)}
+              className="flex items-center gap-1.5 bg-black/5 hover:bg-black/10 transition-colors px-3 py-1.5 rounded-full text-xs font-bold text-[#552c24]"
+            >
+              <HelpCircle size={15} />
+              사용법
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Help Modal */}
