@@ -18,7 +18,7 @@ interface ImageTranslateModalProps {
 const FontAdjustableText = ({ text, onClick }: { text: string, onClick?: () => void }) => {
   return (
     <div 
-      className="w-full h-full relative cursor-pointer rounded-md overflow-hidden bg-white/40 backdrop-blur-md shadow-sm border border-white/40 hover:bg-white/50 transition-colors duration-200"
+      className="w-full h-full relative cursor-pointer rounded-md overflow-hidden bg-white/90 shadow-sm border border-white/40 hover:bg-white transition-colors duration-200"
       onClick={onClick}
       style={{ containerType: 'size' }}
     >
