@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, startTransition } from 'react';
 import { X, Loader2, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { toPng } from 'html-to-image';
+import { toJpeg } from 'html-to-image';
 
 interface TextBlock {
   original: string;
@@ -87,19 +87,19 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
       // 화질을 높게 유지하기 위해 pixelRatio를 최소 2 이상으로 설정합니다.
       const pixelRatio = Math.max(2, window.devicePixelRatio || 1);
       
-      const dataUrl = await toPng(exportRef.current, {
-        cacheBust: true,
+      const dataUrl = await toJpeg(exportRef.current, {
         pixelRatio: pixelRatio,
-        backgroundColor: '#ffffff'
+        backgroundColor: '#ffffff',
+        quality: 0.95
       });
       
       const link = document.createElement('a');
-      link.download = `translated_${Date.now()}.png`;
+      link.download = `translated_${Date.now()}.jpg`;
       link.href = dataUrl;
       link.click();
     } catch (err) {
       console.error('Save failed', err);
-      setError('이미지 저장에 실패했습니다.');
+      setError('이미지 저장에 실패했습니다: ' + (err instanceof Error ? err.message : String(err)));
     } finally {
       setIsSaving(false);
     }
