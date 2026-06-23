@@ -594,28 +594,35 @@ export default function App() {
         </div>
 
         <div className="sticky bottom-8 left-0 right-0 flex justify-center z-10 h-0 overflow-visible pointer-events-none">
-          {inputTypeForeigner === 'mic' && (
+          <div className="flex items-center gap-1 bg-black/30 border border-white/10 backdrop-blur-md rounded-[60px] px-2 py-6 shadow-2xl pointer-events-auto">
             <button
-              onClick={toggleForeignerMic}
-              className={`w-16 h-16 pointer-events-auto rounded-full flex items-center justify-center transition-all shadow-xl ${
-                activeMic === 'foreigner' 
-                  ? 'bg-red-500 animate-pulse text-white scale-110' 
-                  : 'bg-[#ffcd4a] text-[#552c24] hover:scale-105'
+              onClick={() => {
+                if (inputTypeForeigner === 'mic') toggleForeignerMic();
+                else setInputTypeForeigner('mic');
+              }}
+              className={`flex items-center justify-center w-10 h-10 rounded-full transition-all duration-300 ${
+                inputTypeForeigner === 'mic' 
+                  ? activeMic === 'foreigner'
+                    ? 'bg-red-500 animate-pulse text-white' 
+                    : 'bg-[#ffcd4a] text-[#552c24] shadow-md'
+                  : 'text-white/50 hover:bg-white/10 hover:text-white'
               }`}
+              title={inputTypeForeigner === 'mic' ? '말하기' : '음성 입력으로 전환'}
             >
-              {activeMic === 'foreigner' ? <Square fill="currentColor" size={24} /> : <Mic size={28} />}
+              {inputTypeForeigner === 'mic' && activeMic === 'foreigner' ? <Square fill="currentColor" size={16} /> : <Mic size={18} />}
             </button>
-          )}
-        </div>
-        
-        <div className="absolute bottom-6 right-6 z-10">
-          <button
-            onClick={() => setInputTypeForeigner(prev => prev === 'mic' ? 'text' : 'mic')}
-            className="flex items-center justify-center w-10 h-10 bg-white/10 hover:bg-white/20 transition-colors rounded-full text-white shadow-sm"
-            title={inputTypeForeigner === 'mic' ? '텍스트 입력 켜기' : '음성 입력 켜기'}
-          >
-            {inputTypeForeigner === 'mic' ? <Pencil size={18} /> : <Mic size={18} />}
-          </button>
+            <button
+              onClick={() => setInputTypeForeigner('text')}
+              className={`flex items-center justify-center w-10 h-10 rounded-full transition-all duration-300 ${
+                inputTypeForeigner === 'text'
+                  ? 'bg-[#ffcd4a] text-[#552c24] shadow-md'
+                  : 'text-white/50 hover:bg-white/10 hover:text-white'
+              }`}
+              title="텍스트 모드로 전환"
+            >
+              <Pencil size={18} />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -632,18 +639,35 @@ export default function App() {
         </div>
 
         <div className="sticky top-8 left-0 right-0 flex justify-center z-10 h-0 overflow-visible pointer-events-none">
-          {inputTypeUser === 'mic' && (
+          <div className="flex items-center gap-1 bg-white/90 border border-black/10 backdrop-blur-md rounded-[60px] px-2 py-6 shadow-2xl pointer-events-auto -translate-y-full">
             <button
-              onClick={toggleUserMic}
-              className={`w-16 h-16 pointer-events-auto rounded-full flex items-center justify-center transition-all shadow-xl -translate-y-full ${
-                activeMic === 'user' 
-                  ? 'bg-red-500 animate-pulse text-white scale-110' 
-                  : 'bg-[#552c24] text-white hover:scale-105'
+              onClick={() => {
+                if (inputTypeUser === 'mic') toggleUserMic();
+                else setInputTypeUser('mic');
+              }}
+              className={`flex items-center justify-center w-10 h-10 rounded-full transition-all duration-300 ${
+                inputTypeUser === 'mic' 
+                  ? activeMic === 'user'
+                    ? 'bg-red-500 animate-pulse text-white' 
+                    : 'bg-[#552c24] text-white shadow-md'
+                  : 'text-[#552c24]/50 hover:bg-black/5 hover:text-[#552c24]'
               }`}
+              title={inputTypeUser === 'mic' ? '말하기' : '음성 입력으로 전환'}
             >
-              {activeMic === 'user' ? <Square fill="currentColor" size={24} /> : <Mic size={28} />}
+              {inputTypeUser === 'mic' && activeMic === 'user' ? <Square fill="currentColor" size={16} /> : <Mic size={18} />}
             </button>
-          )}
+            <button
+              onClick={() => setInputTypeUser('text')}
+              className={`flex items-center justify-center w-10 h-10 rounded-full transition-all duration-300 ${
+                inputTypeUser === 'text'
+                  ? 'bg-[#552c24] text-white shadow-md'
+                  : 'text-[#552c24]/50 hover:bg-black/5 hover:text-[#552c24]'
+              }`}
+              title="텍스트 모드로 전환"
+            >
+              <Pencil size={18} />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 overflow-visible w-full flex flex-col">
@@ -691,13 +715,9 @@ export default function App() {
         </div>
         
         <div className="absolute bottom-6 left-6 z-10">
-          <button
-            onClick={() => setInputTypeUser(prev => prev === 'mic' ? 'text' : 'mic')}
-            className="flex items-center justify-center w-10 h-10 bg-black/5 hover:bg-black/10 transition-colors rounded-full text-[#552c24] shadow-sm"
-            title={inputTypeUser === 'mic' ? '텍스트 입력 켜기' : '음성 입력 켜기'}
-          >
-            {inputTypeUser === 'mic' ? <Pencil size={18} /> : <Mic size={18} />}
-          </button>
+          <div className="flex items-center gap-3">
+            {/* Removed standalone mode toggle button from here */}
+          </div>
         </div>
 
         {inputTypeUser === 'mic' && (
