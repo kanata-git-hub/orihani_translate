@@ -17,7 +17,6 @@ interface ImageTranslateModalProps {
 const FontAdjustableText = ({ text, onClick }: { text: string, onClick?: () => void }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
-  const [ready, setReady] = useState(false);
   const [isOverflowing, setIsOverflowing] = useState(false);
 
   useLayoutEffect(() => {
@@ -31,25 +30,20 @@ const FontAdjustableText = ({ text, onClick }: { text: string, onClick?: () => v
 
     content.style.fontSize = `${current}px`;
 
-    // Calculate sizes synchronously
-    while (content.scrollHeight > container.clientHeight && current > min) {
-      current--;
-      content.style.fontSize = `${current}px`;
-    }
-
-    // Check if it overflows even at minimum size
+    // Calculate sizes synchronously before paint
     if (content.scrollHeight > container.clientHeight) {
-      setIsOverflowing(true);
-    } else {
-      setIsOverflowing(false);
+      while (content.scrollHeight > container.clientHeight && current > min) {
+        current--;
+        content.style.fontSize = `${current}px`;
+      }
     }
 
-    setReady(true);
+    setIsOverflowing(content.scrollHeight > container.clientHeight);
   }, [text]);
 
   return (
     <div 
-      className={`w-full h-full relative cursor-pointer rounded-md overflow-hidden bg-white/40 backdrop-blur-md shadow-sm border border-white/40 hover:bg-white/50 transition-all duration-200 ${ready ? 'opacity-100' : 'opacity-0'}`}
+      className="w-full h-full relative cursor-pointer rounded-md overflow-hidden bg-white/40 backdrop-blur-md shadow-sm border border-white/40 hover:bg-white/50 transition-colors duration-200"
       onClick={onClick}
     >
       <div 
@@ -134,8 +128,8 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-      <div className="relative w-full max-w-4xl h-full max-h-[90vh] bg-gray-50 rounded-3xl shadow-2xl flex flex-col overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-2 md:p-4">
+      <div className="relative w-full max-w-[95vw] lg:max-w-6xl h-full max-h-[95vh] bg-gray-50 rounded-3xl shadow-2xl flex flex-col overflow-hidden">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-black/5 bg-white z-20">
           <h2 className="text-xl font-bold text-[#552c24]">이미지 번역</h2>
@@ -148,7 +142,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
         </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-hidden relative flex items-center justify-center bg-black/5 p-4 z-10 w-full h-full">
+        <div className="flex-1 overflow-hidden relative flex items-center justify-center bg-[#e5e5e5] z-10 w-full h-full">
           {loading && (
             <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-white/80 backdrop-blur-sm">
               <Loader2 className="w-12 h-12 animate-spin text-[#ffcd4a] mb-4" />
@@ -163,12 +157,12 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
           )}
 
           {imageSrc && (
-            <div className="relative flex justify-center items-center w-full h-full p-2 min-h-0">
-              <div className="relative inline-block max-w-full max-h-full shadow-md rounded-lg">
+            <div className="relative flex justify-center items-center w-full h-full p-2 md:p-6 min-h-0">
+              <div className="relative inline-block max-w-full max-h-full shadow-lg rounded-xl">
                 <img 
                   src={imageSrc} 
                   alt="Original to translate" 
-                  className="block max-w-full max-h-full rounded-lg"
+                  className="block max-w-full max-h-full rounded-xl"
                   style={{ width: 'auto', height: 'auto' }}
                 />
                 
