@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, startTransition } from 'react';
-import { X, Loader2, Search } from 'lucide-react';
+import { X, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface TextBlock {
@@ -18,26 +18,13 @@ interface ImageTranslateModalProps {
 const FontAdjustableText = ({ text, onClick }: { text: string, onClick?: () => void }) => {
   return (
     <div 
-      className="w-full h-full relative cursor-pointer rounded-md overflow-hidden bg-white/90 shadow-sm border border-white/40 hover:bg-white transition-colors duration-200"
+      className="w-full h-full flex flex-col items-center justify-center relative cursor-pointer rounded-lg overflow-hidden bg-white/95 shadow-[0_2px_8px_rgba(0,0,0,0.15)] border border-white/60 hover:bg-white hover:shadow-[0_4px_12px_rgba(0,0,0,0.25)] hover:-translate-y-[1px] transition-all duration-200"
       onClick={onClick}
     >
-      <div 
-        className="w-full h-full overflow-hidden text-left p-1.5"
-        style={{
-          maskImage: 'linear-gradient(to bottom, black 65%, transparent 100%)',
-          WebkitMaskImage: 'linear-gradient(to bottom, black 65%, transparent 100%)',
-        }}
-      >
-        <div 
-          className="text-[#3a1d17] font-bold leading-snug break-words text-[11px] sm:text-[13px]"
-        >
+      <div className="w-full h-full overflow-hidden text-center p-1.5 flex items-center justify-center">
+        <div className="text-[#3a1d17] font-bold leading-snug break-words text-[11.5px] sm:text-[13px] line-clamp-3">
           {text}
         </div>
-      </div>
-      
-      {/* Subtle touch watermark icon */}
-      <div className="absolute bottom-1 right-1 opacity-30 pointer-events-none">
-        <Search size={14} className="text-[#3a1d17]" />
       </div>
     </div>
   );
@@ -229,7 +216,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                             transform: 'translateZ(0)',
                           }}
                         >
-                          <div className="absolute inset-x-0.5 inset-y-0.5">
+                          <div className="absolute -inset-1.5 sm:-inset-2.5">
                             <FontAdjustableText text={block.translation} onClick={() => setSelectedBlock(block)} />
                           </div>
                         </motion.div>
