@@ -18,11 +18,11 @@ interface ImageTranslateModalProps {
 const FontAdjustableText = ({ text, onClick }: { text: string, onClick?: () => void }) => {
   return (
     <div 
-      className="w-full h-full flex flex-col items-center justify-center relative cursor-pointer rounded-lg overflow-hidden bg-white/95 shadow-[0_2px_8px_rgba(0,0,0,0.15)] border border-white/60 hover:bg-white hover:shadow-[0_4px_12px_rgba(0,0,0,0.25)] hover:-translate-y-[1px] transition-all duration-200"
+      className="w-full h-full flex flex-col items-center justify-center relative cursor-pointer rounded-md overflow-hidden bg-white/95 shadow-[0_2px_8px_rgba(0,0,0,0.15)] border border-white/60 hover:bg-white hover:shadow-[0_4px_12px_rgba(0,0,0,0.25)] hover:-translate-y-[1px] transition-all duration-200"
       onClick={onClick}
     >
-      <div className="w-full h-full overflow-hidden text-center p-1.5 flex items-center justify-center">
-        <div className="text-[#3a1d17] font-bold leading-snug break-words text-[11.5px] sm:text-[13px] line-clamp-3">
+      <div className="w-full h-full overflow-hidden text-center p-0.5 flex items-center justify-center">
+        <div className="text-[#3a1d17] font-bold leading-tight break-words text-[13px] sm:text-[16px] line-clamp-3">
           {text}
         </div>
       </div>
@@ -216,7 +216,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                             transform: 'translateZ(0)',
                           }}
                         >
-                          <div className="absolute -inset-1.5 sm:-inset-2.5">
+                          <div className="absolute inset-0">
                             <FontAdjustableText text={block.translation} onClick={() => setSelectedBlock(block)} />
                           </div>
                         </motion.div>
