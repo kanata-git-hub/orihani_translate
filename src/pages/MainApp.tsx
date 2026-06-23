@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Languages, Volume2, VolumeX, Loader2, LogOut, Shield, HelpCircle, X, Pencil, Send } from 'lucide-react';
+import { Mic, Square, Languages, Volume2, VolumeX, Loader2, LogOut, Shield, HelpCircle, X, Pencil, Send, RotateCcw } from 'lucide-react';
 import { playAudioChunk, resetAudioQueue, setHoldPlayback } from '../audio';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { logout } from '../lib/firebaseUtils';
@@ -75,6 +75,23 @@ export default function App() {
     silenceTimerRef.current = setTimeout(() => {
       stopRecording();
     }, 10000);
+  };
+
+  const handleReset = () => {
+    if (activeMic) stopRecording();
+    setForeignerText('');
+    setUserText('');
+    setTextInputForeigner('');
+    setTextInputUser('');
+    setLocalUnfinalizedForeigner('');
+    setLocalUnfinalizedUser('');
+    foreignerCompleteRef.current = '';
+    userCompleteRef.current = '';
+    foreignerPendingRef.current = '';
+    userPendingRef.current = '';
+    lastSpeakerRef.current = null;
+    activeTurnContextRef.current = '';
+    lastProcessedIndex.current = 0;
   };
 
   const getEnsureWs = () => {
@@ -720,17 +737,23 @@ export default function App() {
           </div>
         </div>
 
-        {inputTypeUser === 'mic' && (
-          <div className="absolute bottom-6 right-6 z-10">
-            <button 
-              onClick={() => setShowHelp(true)}
-              className="flex items-center gap-1.5 bg-black/5 hover:bg-black/10 transition-colors px-3 py-1.5 rounded-full text-xs font-bold text-[#552c24]"
-            >
-              <HelpCircle size={15} />
-              사용법
-            </button>
-          </div>
-        )}
+        <div className="absolute bottom-6 right-6 z-10 flex items-center gap-2">
+          <button 
+            onClick={handleReset}
+            className="flex items-center gap-1.5 bg-black/5 hover:bg-black/10 transition-colors px-3 py-1.5 rounded-full text-xs font-bold text-[#552c24]"
+            title="대화 초기화"
+          >
+            <RotateCcw size={15} />
+            초기화
+          </button>
+          <button 
+            onClick={() => setShowHelp(true)}
+            className="flex items-center gap-1.5 bg-black/5 hover:bg-black/10 transition-colors px-3 py-1.5 rounded-full text-xs font-bold text-[#552c24]"
+          >
+            <HelpCircle size={15} />
+            사용법
+          </button>
+        </div>
       </div>
 
       {/* Help Modal */}
