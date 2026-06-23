@@ -15,22 +15,49 @@ interface ImageTranslateModalProps {
   file: File | null;
 }
 
-const FontAdjustableText = ({ text, onClick }: { text: string, onClick?: () => void }) => {
+const FontAdjustableText = ({ text, box, onClick }: { text: string, box: number[], onClick?: () => void }) => {
+  // 박스의 절대 좌표를 바탕으로 가로세로 비율(aspect ratio)을 계산합니다.
+  const [ymin, xmin, ymax, xmax] = box;
+  const boxWidth = Math.max(1, xmax - xmin);
+  const boxHeight = Math.max(1, ymax - ymin);
+  const aspectRatio = boxWidth / boxHeight;
+
+  // 1. 최소한 완벽히 가시성을 보장할 "한 문장(목표 텍스트)"의 길이를 잡습니다.
+  // 텍스트가 아무리 길어도 30자 정도까지만 최적 크기로 맞추고 나머지는 클램핑 처리합니다.
+  const targetLen = Math.min(text.length, 30);
+  
+  // 2. 박스의 종횡비(Box Aspect Ratio)와 컨텐츠 길이(targetLen)의 면적을 수학적으로 병합합니다.
+  // 공식: (가로 글자수 C) / (세로 줄수 L * 줄간격 1.25) = aspectRatio
+  // C * L = targetLen  =>  C = Math.sqrt(1.25 * aspectRatio * targetLen)
+  const charsPerLine = Math.sqrt(1.25 * aspectRatio * Math.max(1, targetLen));
+  
+  // 3. 도출된 '줄당 글자수(C)'를 100cqw에 분배하여 정확한 최적의 폰트 사이즈 cqw 도출
+  const optimalCqw = 100 / Math.max(1, charsPerLine);
+
+  // 4. 표시할 텍스트가 차지하게 될 실제 줄(Line) 수를 역산하여 유연하게 클램핑
+  const optimalLines = Math.ceil(targetLen / Math.max(1, charsPerLine));
+
   return (
     <div 
       className="@container w-full h-full flex flex-col items-center justify-center relative cursor-pointer rounded-md overflow-hidden bg-white/95 shadow-[0_2px_8px_rgba(0,0,0,0.15)] border border-white/60 hover:bg-white hover:shadow-[0_4px_12px_rgba(0,0,0,0.25)] hover:-translate-y-[1px] transition-all duration-200"
       onClick={onClick}
       style={{ containerType: 'size' as any }}
     >
-      <div className="w-full h-full overflow-hidden text-center flex items-center justify-center px-[3cqw] py-[3cqh]">
+      <div className="w-full h-full overflow-hidden text-center flex items-center justify-center p-0.5 sm:p-1">
         <div 
-          className="text-[#3a1d17] font-bold leading-tight break-words"
+          className="text-[#3a1d17] font-bold"
           style={{ 
-            fontSize: 'max(6px, min(40cqh, 25cqw))',
+            lineHeight: 1.25,
+            // 수학적으로 계산된 optimalCqw를 적용하되, 지나치게 뭉개지는 것을 방지하기 위해 8px 최후 마지노선을 둡니다.
+            fontSize: `clamp(8px, min(45cqh, ${optimalCqw}cqw), 32px)`,
+            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
             display: '-webkit-box',
-            WebkitLineClamp: 3,
+            // 세로로 긴 박스의 경우 강제로 3줄에서 자르지 않고, 계산된 필요 줄수만큼 충분히 공간을 줍니다.
+            WebkitLineClamp: Math.max(2, optimalLines + 1),
             WebkitBoxOrient: 'vertical',
-            overflow: 'hidden'
+            overflow: 'hidden',
+            textOverflow: 'ellipsis'
           }}
         >
           {text}
@@ -227,7 +254,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                           }}
                         >
                           <div className="absolute -inset-1 sm:-inset-1.5">
-                            <FontAdjustableText text={block.translation} onClick={() => setSelectedBlock(block)} />
+                            <FontAdjustableText text={block.translation} box={block.box} onClick={() => setSelectedBlock(block)} />
                           </div>
                         </motion.div>
                       );
