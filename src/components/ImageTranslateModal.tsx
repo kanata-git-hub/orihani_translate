@@ -1,5 +1,5 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { X, Loader2 } from 'lucide-react';
+import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import { X, Loader2, Search } from 'lucide-react';
 
 interface TextBlock {
   original: string;
@@ -17,8 +17,10 @@ interface ImageTranslateModalProps {
 const FontAdjustableText = ({ text, onClick }: { text: string, onClick?: () => void }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const textRef = useRef<HTMLDivElement>(null);
+  const [ready, setReady] = useState(false);
+  const [isOverflowing, setIsOverflowing] = useState(false);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const container = containerRef.current;
     const content = textRef.current;
     if (!container || !content) return;
@@ -27,26 +29,45 @@ const FontAdjustableText = ({ text, onClick }: { text: string, onClick?: () => v
     let max = 16;
     let current = max;
 
-    const adjust = () => {
+    content.style.fontSize = `${current}px`;
+
+    // Calculate sizes synchronously
+    while (content.scrollHeight > container.clientHeight && current > min) {
+      current--;
       content.style.fontSize = `${current}px`;
-      if (content.scrollHeight > container.clientHeight && current > min) {
-        current--;
-        adjust(); // Try again until min sizes
-      }
-    };
-    content.style.fontSize = `${max}px`;
-    requestAnimationFrame(adjust);
+    }
+
+    // Check if it overflows even at minimum size
+    if (content.scrollHeight > container.clientHeight) {
+      setIsOverflowing(true);
+    } else {
+      setIsOverflowing(false);
+    }
+
+    setReady(true);
   }, [text]);
 
   return (
     <div 
-      className="w-full h-full bg-white/85 shadow-sm border border-black/5 backdrop-blur-sm rounded-md overflow-hidden flex cursor-pointer hover:bg-white/95"
+      className={`w-full h-full relative cursor-pointer rounded-md overflow-hidden bg-white/40 backdrop-blur-md shadow-sm border border-white/40 hover:bg-white/50 transition-all duration-200 ${ready ? 'opacity-100' : 'opacity-0'}`}
       onClick={onClick}
     >
-      <div ref={containerRef} className="w-full h-full overflow-y-auto no-scrollbar text-left p-1.5">
-        <div ref={textRef} className="text-[#552c24] font-bold leading-tight break-words">
+      <div 
+        ref={containerRef} 
+        className="w-full h-full overflow-hidden text-left p-1.5"
+        style={{
+          maskImage: isOverflowing ? 'linear-gradient(to bottom, black 60%, transparent 100%)' : 'none',
+          WebkitMaskImage: isOverflowing ? 'linear-gradient(to bottom, black 60%, transparent 100%)' : 'none',
+        }}
+      >
+        <div ref={textRef} className="text-[#3a1d17] font-bold leading-snug break-words">
           {text}
         </div>
+      </div>
+      
+      {/* Subtle touch watermark icon */}
+      <div className="absolute bottom-1 right-1 opacity-20 pointer-events-none">
+        <Search size={14} className="text-black" />
       </div>
     </div>
   );
@@ -194,13 +215,13 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
             </div>
             
             <div className="space-y-4 max-h-[30vh] overflow-y-auto no-scrollbar">
-              <div>
-                <p className="text-xs font-semibold text-black/40 mb-1">원문</p>
-                <p className="text-sm text-gray-700 break-words">{selectedBlock.original}</p>
-              </div>
-              <div className="bg-[#ffcd4a]/10 p-3 rounded-lg border border-[#ffcd4a]/20">
+              <div className="bg-[#ffcd4a]/10 p-3 rounded-xl border border-[#ffcd4a]/20">
                 <p className="text-xs font-semibold text-[#552c24]/50 mb-1">번역</p>
-                <p className="text-base font-bold text-[#552c24] break-words">{selectedBlock.translation}</p>
+                <p className="text-lg font-bold text-[#552c24] break-words leading-relaxed">{selectedBlock.translation}</p>
+              </div>
+              <div className="px-1">
+                <p className="text-xs font-semibold text-black/30 mb-1">원문</p>
+                <p className="text-sm text-gray-500 break-words">{selectedBlock.original}</p>
               </div>
             </div>
           </div>
