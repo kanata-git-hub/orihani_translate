@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Languages, Volume2, VolumeX, Loader2, LogOut, Shield, HelpCircle, X, Pencil, Send, RotateCcw } from 'lucide-react';
+import { Mic, Square, Languages, Volume2, VolumeX, Loader2, LogOut, Shield, HelpCircle, X, Pencil, Send, RotateCcw, Camera } from 'lucide-react';
 import { playAudioChunk, resetAudioQueue, setHoldPlayback } from '../audio';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { logout } from '../lib/firebaseUtils';
@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { HelpModal } from '../components/HelpModal';
 import { LOCALIZATION } from '../constants/localization';
+import { ImageTranslateModal } from '../components/ImageTranslateModal';
 
 const renderPronunciation = (text: string) => {
   if (!text) return null;
@@ -71,6 +72,11 @@ export default function App() {
 
   const [playingTTS, setPlayingTTS] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showImageModal, setShowImageModal] = useState(false);
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imageTargetLang, setImageTargetLang] = useState<string>('Korean');
+  const imageInputForeignerRef = useRef<HTMLInputElement>(null);
+  const imageInputUserRef = useRef<HTMLInputElement>(null);
   const [processingRole, setProcessingRole] = useState<'foreigner' | 'user' | null>(null);
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -491,6 +497,18 @@ export default function App() {
     }
   };
 
+  const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>, role: 'foreigner' | 'user') => {
+    const file = e.target.files?.[0];
+    if (file) {
+      if (activeMic) stopRecording();
+      setImageTargetLang(role === 'foreigner' ? foreignerLang : 'Korean');
+      setImageFile(file);
+      setShowImageModal(true);
+    }
+    // reset input
+    e.target.value = '';
+  };
+
   const handleSendText = (role: 'foreigner' | 'user') => {
     const textToSend = role === 'foreigner' ? textInputForeigner.trim() : textInputUser.trim();
     if (!textToSend) return;
@@ -698,6 +716,20 @@ export default function App() {
             >
               <Pencil size={18} />
             </button>
+            <button
+              onClick={() => imageInputForeignerRef.current?.click()}
+              className="flex items-center justify-center w-10 h-10 rounded-full transition-all duration-300 text-white/50 hover:bg-white/10 hover:text-white"
+              title="이미지 번역"
+            >
+              <Camera size={18} />
+              <input 
+                type="file" 
+                accept="image/*" 
+                className="hidden" 
+                ref={imageInputForeignerRef}
+                onChange={(e) => handleImageChange(e, 'foreigner')} 
+              />
+            </button>
           </div>
         </div>
       </div>
@@ -742,6 +774,20 @@ export default function App() {
               title="텍스트 모드로 전환"
             >
               <Pencil size={18} />
+            </button>
+            <button
+              onClick={() => imageInputUserRef.current?.click()}
+              className="flex items-center justify-center w-10 h-10 rounded-full transition-all duration-300 text-[#552c24]/50 hover:bg-black/5 hover:text-[#552c24]"
+              title="이미지 번역"
+            >
+              <Camera size={18} />
+              <input 
+                type="file" 
+                accept="image/*" 
+                className="hidden" 
+                ref={imageInputUserRef}
+                onChange={(e) => handleImageChange(e, 'user')} 
+              />
             </button>
           </div>
         </div>
@@ -816,6 +862,16 @@ export default function App() {
 
       {/* Help Modal */}
       {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+
+      <ImageTranslateModal 
+        isOpen={showImageModal} 
+        onClose={() => {
+          setShowImageModal(false);
+          setImageFile(null);
+        }} 
+        targetLang={imageTargetLang}
+        file={imageFile}
+      />
     </div>
   );
 }

@@ -265,6 +265,40 @@ Output purely the translation and the pronunciation separated by "|||". Do NOT i
     res.json({ status: "ok" });
   });
 
+  app.post("/api/translate-image", async (req, res) => {
+    try {
+      const { imageParams, targetLang } = req.body; 
+      const ai = getAi();
+      
+      const systemPrompt = `You are an OCR and translation expert. Translate all the text found in the image to ${targetLang}. For each block of text translated, provide the \`[ymin, xmin, ymax, xmax]\` coordinates normalized from 0 to 1000 representing the bounding box of the original text. Return a strict JSON array of objects with keys: \`original\` (string), \`translation\` (string), \`box\` (array of 4 numbers).`;
+
+      const response = await fetchWithBackoff(() => ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: [{
+          role: "user",
+          parts: [
+            { text: systemPrompt },
+            { 
+               inlineData: { mimeType: imageParams.mimeType, data: imageParams.data } 
+            }
+          ]
+        }],
+        config: {
+          responseMimeType: "application/json"
+        }
+      }));
+
+      if (response?.text) {
+          const parsed = JSON.parse(response.text);
+          return res.json({ blocks: parsed });
+      }
+      res.status(500).json({ error: "Failed to process image" });
+    } catch(e: any) {
+        console.error("Image Translate Error", e);
+        res.status(500).json({ error: e?.message || "Unknown error" });
+    }
+  });
+
   app.post("/api/tts", async (req, res) => {
     try {
       const { text } = req.body;
