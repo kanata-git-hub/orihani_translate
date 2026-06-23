@@ -18,9 +18,8 @@ interface ImageTranslateModalProps {
 const FontAdjustableText = ({ text, onClick }: { text: string, onClick?: () => void }) => {
   return (
     <div 
-      className="w-full h-full relative cursor-pointer rounded-md overflow-hidden bg-white/90 shadow-sm border border-white/40 hover:bg-white transition-colors duration-200"
+      className="w-full h-full relative cursor-pointer rounded-md overflow-hidden bg-white/40 backdrop-blur-md shadow-sm border border-white/40 hover:bg-white/50 transition-colors duration-200"
       onClick={onClick}
-      style={{ containerType: 'size' }}
     >
       <div 
         className="w-full h-full overflow-hidden text-left p-1.5"
@@ -30,8 +29,7 @@ const FontAdjustableText = ({ text, onClick }: { text: string, onClick?: () => v
         }}
       >
         <div 
-          className="text-[#3a1d17] font-bold leading-snug break-words"
-          style={{ fontSize: 'clamp(10px, 15cqw, 16px)' }}
+          className="text-[#3a1d17] font-bold leading-snug break-words text-[11px] sm:text-[13px]"
         >
           {text}
         </div>
@@ -159,41 +157,21 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
 
         {/* Content */}
         <div className="flex-1 overflow-hidden relative flex items-center justify-center bg-[#e5e5e5] z-10 w-full h-full">
-          <AnimatePresence>
-            {loading && (
-              <motion.div 
-                key="loading-overlay"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.3 }}
-                className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-white/90"
-              >
-                <Loader2 className="w-12 h-12 animate-spin text-[#ffcd4a] mb-4" />
-                <p className="text-[#552c24] font-medium animate-pulse">이미지를 분석하고 번역중입니다...</p>
-              </motion.div>
-            )}
-            
-            {error && (
-              <motion.div 
-                key="error-overlay"
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -10 }}
-                className="absolute z-30 top-4 left-4 right-4 bg-red-100 text-red-700 p-4 rounded-xl text-center font-medium shadow-md"
-              >
-                {error}
-              </motion.div>
-            )}
-          </AnimatePresence>
+          {loading && (
+            <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-white/90">
+              <Loader2 className="w-12 h-12 animate-spin text-[#ffcd4a] mb-4" />
+              <p className="text-[#552c24] font-medium animate-pulse">이미지를 분석하고 번역중입니다...</p>
+            </div>
+          )}
+          
+          {error && (
+            <div className="absolute z-30 top-4 left-4 right-4 bg-red-100 text-red-700 p-4 rounded-xl text-center font-medium shadow-md">
+              {error}
+            </div>
+          )}
 
           {imageSrc && (
-            <motion.div 
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.4 }}
-              className="relative flex justify-center items-center w-full h-full p-2 md:p-6 min-h-0"
-            >
+            <div className="relative flex justify-center items-center w-full h-full p-2 md:p-6 min-h-0">
               <div className="relative inline-block max-w-full max-h-full shadow-lg rounded-xl">
                 <img 
                   src={imageSrc} 
@@ -202,45 +180,36 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                   style={{ width: 'auto', height: 'auto' }}
                 />
                 
-                <AnimatePresence>
-                  {!loading && blocks.length > 0 && (
-                    <motion.div 
-                      key="blocks-container"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ duration: 0.5, delay: 0.1 }}
-                      className="absolute inset-0"
-                    >
-                      {blocks.map((block, idx) => {
-                        const [ymin, xmin, ymax, xmax] = block.box;
-                        const top = `${ymin / 10}%`;
-                        const left = `${xmin / 10}%`;
-                        const height = `${(ymax - ymin) / 10}%`;
-                        const width = `${(xmax - xmin) / 10}%`;
+                {!loading && blocks.length > 0 && (
+                  <div className="absolute inset-0">
+                    {blocks.map((block, idx) => {
+                      const [ymin, xmin, ymax, xmax] = block.box;
+                      const top = `${ymin / 10}%`;
+                      const left = `${xmin / 10}%`;
+                      const height = `${(ymax - ymin) / 10}%`;
+                      const width = `${(xmax - xmin) / 10}%`;
 
-                        return (
-                          <div
-                            key={idx}
-                            className="absolute z-20"
-                            style={{
-                              top,
-                              left,
-                              height,
-                              width,
-                            }}
-                          >
-                            <div className="absolute inset-x-0.5 inset-y-0.5">
-                              <FontAdjustableText text={block.translation} onClick={() => setSelectedBlock(block)} />
-                            </div>
+                      return (
+                        <div
+                          key={idx}
+                          className="absolute z-20"
+                          style={{
+                            top,
+                            left,
+                            height,
+                            width,
+                          }}
+                        >
+                          <div className="absolute inset-x-0.5 inset-y-0.5">
+                            <FontAdjustableText text={block.translation} onClick={() => setSelectedBlock(block)} />
                           </div>
-                        );
-                      })}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
-            </motion.div>
+            </div>
           )}
         </div>
         
