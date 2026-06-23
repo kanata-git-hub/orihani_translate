@@ -18,11 +18,21 @@ interface ImageTranslateModalProps {
 const FontAdjustableText = ({ text, onClick }: { text: string, onClick?: () => void }) => {
   return (
     <div 
-      className="w-full h-full flex flex-col items-center justify-center relative cursor-pointer rounded-md overflow-hidden bg-white/95 shadow-[0_2px_8px_rgba(0,0,0,0.15)] border border-white/60 hover:bg-white hover:shadow-[0_4px_12px_rgba(0,0,0,0.25)] hover:-translate-y-[1px] transition-all duration-200"
+      className="@container w-full h-full flex flex-col items-center justify-center relative cursor-pointer rounded-md overflow-hidden bg-white/95 shadow-[0_2px_8px_rgba(0,0,0,0.15)] border border-white/60 hover:bg-white hover:shadow-[0_4px_12px_rgba(0,0,0,0.25)] hover:-translate-y-[1px] transition-all duration-200"
       onClick={onClick}
+      style={{ containerType: 'size' as any }}
     >
-      <div className="w-full h-full overflow-hidden text-center p-0.5 flex items-center justify-center">
-        <div className="text-[#3a1d17] font-bold leading-tight break-words text-[13px] sm:text-[16px] line-clamp-3">
+      <div className="w-full h-full overflow-hidden text-center flex items-center justify-center px-[3cqw] py-[3cqh]">
+        <div 
+          className="text-[#3a1d17] font-bold leading-tight break-words"
+          style={{ 
+            fontSize: 'max(6px, min(40cqh, 25cqw))',
+            display: '-webkit-box',
+            WebkitLineClamp: 3,
+            WebkitBoxOrient: 'vertical',
+            overflow: 'hidden'
+          }}
+        >
           {text}
         </div>
       </div>
