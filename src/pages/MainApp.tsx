@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Languages, Volume2, VolumeX, Loader2, LogOut, Shield, HelpCircle, X } from 'lucide-react';
+import { Mic, Square, Languages, Volume2, VolumeX, Loader2, LogOut, Shield, HelpCircle, X, Pencil, Send } from 'lucide-react';
 import { playAudioChunk, resetAudioQueue, setHoldPlayback } from '../audio';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { logout } from '../lib/firebaseUtils';
@@ -28,6 +28,11 @@ export default function App() {
   const [activeMic, setActiveMic] = useState<'foreigner' | 'user' | null>(null);
   const activeMicRef = useRef(activeMic);
   
+  const [inputTypeForeigner, setInputTypeForeigner] = useState<'mic' | 'text'>('mic');
+  const [inputTypeUser, setInputTypeUser] = useState<'mic' | 'text'>('mic');
+  const [textInputForeigner, setTextInputForeigner] = useState('');
+  const [textInputUser, setTextInputUser] = useState('');
+
   useEffect(() => {
     activeMicRef.current = activeMic;
   }, [activeMic]);
@@ -425,6 +430,41 @@ export default function App() {
     }
   };
 
+  const handleSendText = (role: 'foreigner' | 'user') => {
+    const textToSend = role === 'foreigner' ? textInputForeigner.trim() : textInputUser.trim();
+    if (!textToSend) return;
+
+    if (activeMic) stopRecording();
+
+    setProcessingRole(role);
+    lastSpeakerRef.current = role;
+
+    if (role === 'foreigner') {
+       foreignerCompleteRef.current += (foreignerCompleteRef.current ? ' ' : '') + textToSend;
+       setForeignerText((foreignerCompleteRef.current + " " + foreignerPendingRef.current).trim());
+       setTextInputForeigner('');
+    } else {
+       userCompleteRef.current += (userCompleteRef.current ? ' ' : '') + textToSend;
+       setUserText((userCompleteRef.current + " " + userPendingRef.current).trim());
+       setTextInputUser('');
+    }
+
+    const currentComplete = role === 'foreigner' ? foreignerCompleteRef.current : userCompleteRef.current;
+    const opponentComplete = activeTurnContextRef.current;
+
+    getEnsureWs().then(ws => {
+      ws.send(JSON.stringify({ 
+        type: 'process_text',
+        role: role,
+        text: textToSend,
+        previousText: currentComplete.trim(),
+        opponentText: opponentComplete.trim(),
+        targetLanguageCode: role === 'foreigner' ? 'Korean' : foreignerLang,
+        ttsEnabled: ttsEnabledRef.current
+      }));
+    }).catch(console.error);
+  };
+
   const playTTS = async (text: string) => {
     if (!text) return;
     setPlayingTTS(true);
@@ -509,9 +549,30 @@ export default function App() {
           </div>
         </div>
         
-        <div className="flex-1 overflow-visible w-full">
-          <div className="flex flex-col justify-center min-h-full py-4">
-            {foreignerText || localUnfinalizedForeigner ? (
+        <div className="flex-1 overflow-visible w-full flex flex-col">
+          <div className="flex flex-col flex-1 justify-center py-4">
+            {inputTypeForeigner === 'text' ? (
+              <div className="flex flex-col gap-4 w-full h-full justify-center">
+                {foreignerText && (
+                  <p className="text-xl opacity-50 mb-2 truncate shrink-0">{foreignerText}</p>
+                )}
+                <div className="relative w-full z-20 flex-1 flex">
+                  <textarea
+                    value={textInputForeigner}
+                    onChange={(e) => setTextInputForeigner(e.target.value)}
+                    className="w-full flex-1 bg-black/20 rounded-2xl p-4 pr-16 resize-none outline-none text-2xl font-medium focus:bg-black/30 transition-colors text-white"
+                    placeholder={foreignLoc.typeHere || "Type here..."}
+                  />
+                  <button 
+                    className="absolute right-3 bottom-4 w-10 h-10 bg-[#ffcd4a] text-[#552c24] rounded-full flex items-center justify-center disabled:opacity-50"
+                    disabled={!textInputForeigner.trim()}
+                    onClick={() => handleSendText('foreigner')}
+                  >
+                    <Send size={18} className="ml-0.5" />
+                  </button>
+                </div>
+              </div>
+            ) : foreignerText || localUnfinalizedForeigner ? (
               <div className="group relative pr-12">
                 <p className="text-2xl sm:text-3xl leading-tight font-medium break-words text-white">
                   {foreignerText} {localUnfinalizedForeigner && <span className="opacity-70">{localUnfinalizedForeigner}</span>}
@@ -533,15 +594,27 @@ export default function App() {
         </div>
 
         <div className="sticky bottom-8 left-0 right-0 flex justify-center z-10 h-0 overflow-visible pointer-events-none">
+          {inputTypeForeigner === 'mic' && (
+            <button
+              onClick={toggleForeignerMic}
+              className={`w-16 h-16 pointer-events-auto rounded-full flex items-center justify-center transition-all shadow-xl ${
+                activeMic === 'foreigner' 
+                  ? 'bg-red-500 animate-pulse text-white scale-110' 
+                  : 'bg-[#ffcd4a] text-[#552c24] hover:scale-105'
+              }`}
+            >
+              {activeMic === 'foreigner' ? <Square fill="currentColor" size={24} /> : <Mic size={28} />}
+            </button>
+          )}
+        </div>
+        
+        <div className="absolute bottom-6 right-6 z-10">
           <button
-            onClick={toggleForeignerMic}
-            className={`w-16 h-16 pointer-events-auto rounded-full flex items-center justify-center transition-all shadow-xl ${
-              activeMic === 'foreigner' 
-                ? 'bg-red-500 animate-pulse text-white scale-110' 
-                : 'bg-[#ffcd4a] text-[#552c24] hover:scale-105'
-            }`}
+            onClick={() => setInputTypeForeigner(prev => prev === 'mic' ? 'text' : 'mic')}
+            className="flex items-center justify-center w-10 h-10 bg-white/10 hover:bg-white/20 transition-colors rounded-full text-white shadow-sm"
+            title={inputTypeForeigner === 'mic' ? '텍스트 입력 켜기' : '음성 입력 켜기'}
           >
-            {activeMic === 'foreigner' ? <Square fill="currentColor" size={24} /> : <Mic size={28} />}
+            {inputTypeForeigner === 'mic' ? <Pencil size={18} /> : <Mic size={18} />}
           </button>
         </div>
       </div>
@@ -559,21 +632,44 @@ export default function App() {
         </div>
 
         <div className="sticky top-8 left-0 right-0 flex justify-center z-10 h-0 overflow-visible pointer-events-none">
-          <button
-            onClick={toggleUserMic}
-            className={`w-16 h-16 pointer-events-auto rounded-full flex items-center justify-center transition-all shadow-xl -translate-y-full ${
-              activeMic === 'user' 
-                ? 'bg-red-500 animate-pulse text-white scale-110' 
-                : 'bg-[#552c24] text-white hover:scale-105'
-            }`}
-          >
-            {activeMic === 'user' ? <Square fill="currentColor" size={24} /> : <Mic size={28} />}
-          </button>
+          {inputTypeUser === 'mic' && (
+            <button
+              onClick={toggleUserMic}
+              className={`w-16 h-16 pointer-events-auto rounded-full flex items-center justify-center transition-all shadow-xl -translate-y-full ${
+                activeMic === 'user' 
+                  ? 'bg-red-500 animate-pulse text-white scale-110' 
+                  : 'bg-[#552c24] text-white hover:scale-105'
+              }`}
+            >
+              {activeMic === 'user' ? <Square fill="currentColor" size={24} /> : <Mic size={28} />}
+            </button>
+          )}
         </div>
 
-        <div className="flex-1 overflow-visible w-full">
-          <div className="flex flex-col justify-center min-h-full py-4">
-            {userText || localUnfinalizedUser ? (
+        <div className="flex-1 overflow-visible w-full flex flex-col">
+          <div className="flex flex-col flex-1 justify-center py-4">
+            {inputTypeUser === 'text' ? (
+              <div className="flex flex-col gap-4 w-full h-full justify-center">
+                {userText && (
+                  <p className="text-xl opacity-50 mb-2 truncate shrink-0">{userText}</p>
+                )}
+                <div className="relative w-full z-20 flex-1 flex">
+                  <textarea
+                    value={textInputUser}
+                    onChange={(e) => setTextInputUser(e.target.value)}
+                    className="w-full flex-1 bg-black/5 rounded-2xl p-4 pr-16 resize-none outline-none text-2xl font-medium focus:bg-black/10 transition-colors text-[#552c24]"
+                    placeholder={userLoc.typeHere || "여기에 입력하세요..."}
+                  />
+                  <button 
+                    className="absolute right-3 bottom-4 w-10 h-10 bg-[#552c24] text-white rounded-full flex items-center justify-center disabled:opacity-50"
+                    disabled={!textInputUser.trim()}
+                    onClick={() => handleSendText('user')}
+                  >
+                    <Send size={18} className="ml-0.5" />
+                  </button>
+                </div>
+              </div>
+            ) : userText || localUnfinalizedUser ? (
               <div className="group relative pr-12">
                 <p className="text-2xl sm:text-3xl leading-tight font-medium break-words text-[#552c24]">
                   {userText} {localUnfinalizedUser && <span className="opacity-70">{localUnfinalizedUser}</span>}
@@ -594,15 +690,27 @@ export default function App() {
           </div>
         </div>
         
-        <div className="absolute bottom-6 right-6 z-10">
-          <button 
-            onClick={() => setShowHelp(true)}
-            className="flex items-center gap-1.5 bg-black/5 hover:bg-black/10 transition-colors px-3 py-1.5 rounded-full text-xs font-bold text-[#552c24]"
+        <div className="absolute bottom-6 left-6 z-10">
+          <button
+            onClick={() => setInputTypeUser(prev => prev === 'mic' ? 'text' : 'mic')}
+            className="flex items-center justify-center w-10 h-10 bg-black/5 hover:bg-black/10 transition-colors rounded-full text-[#552c24] shadow-sm"
+            title={inputTypeUser === 'mic' ? '텍스트 입력 켜기' : '음성 입력 켜기'}
           >
-            <HelpCircle size={15} />
-            사용법
+            {inputTypeUser === 'mic' ? <Pencil size={18} /> : <Mic size={18} />}
           </button>
         </div>
+
+        {inputTypeUser === 'mic' && (
+          <div className="absolute bottom-6 right-6 z-10">
+            <button 
+              onClick={() => setShowHelp(true)}
+              className="flex items-center gap-1.5 bg-black/5 hover:bg-black/10 transition-colors px-3 py-1.5 rounded-full text-xs font-bold text-[#552c24]"
+            >
+              <HelpCircle size={15} />
+              사용법
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Help Modal */}
