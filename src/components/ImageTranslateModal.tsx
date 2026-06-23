@@ -142,12 +142,13 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
           )}
 
           {imageSrc && (
-            <div className="relative inline-block w-full h-full flex justify-center items-center" ref={containerRef}>
-              <div className="relative max-w-full max-h-full min-h-0 min-w-0" style={{ height: '100%' }}>
+            <div className="relative flex justify-center items-center w-full h-full p-2 min-h-0">
+              <div className="relative inline-block max-w-full max-h-full shadow-md rounded-lg">
                 <img 
                   src={imageSrc} 
                   alt="Original to translate" 
-                  className="max-w-full max-h-full object-contain mx-auto rounded-lg shadow-sm"
+                  className="block max-w-full max-h-full rounded-lg"
+                  style={{ width: 'auto', height: 'auto' }}
                 />
                 
                 {!loading && blocks.map((block, idx) => {
@@ -160,7 +161,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                   return (
                     <div
                       key={idx}
-                      className="absolute z-20 p-0.5"
+                      className="absolute z-20"
                       style={{
                         top,
                         left,
@@ -168,7 +169,9 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                         width,
                       }}
                     >
-                      <FontAdjustableText text={block.translation} onClick={() => setSelectedBlock(block)} />
+                      <div className="absolute inset-x-0.5 inset-y-0.5">
+                        <FontAdjustableText text={block.translation} onClick={() => setSelectedBlock(block)} />
+                      </div>
                     </div>
                   );
                 })}
