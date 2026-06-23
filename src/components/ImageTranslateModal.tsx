@@ -106,17 +106,57 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
       if (!isMounted) return;
 
       try {
-        const base64Data = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onloadend = () => resolve(reader.result as string);
-          reader.onerror = reject;
-          reader.readAsDataURL(file);
-        });
+        const processAndCompressImage = async (f: File): Promise<{ mimeType: string, base64: string }> => {
+          return new Promise((resolve, reject) => {
+            const img = new Image();
+            const url = URL.createObjectURL(f);
+            
+            img.onload = () => {
+              URL.revokeObjectURL(url);
+              const MAX_SIZE = 2048;
+              let width = img.width;
+              let height = img.height;
+              
+              if (width > height) {
+                if (width > MAX_SIZE) {
+                  height = Math.round(height * (MAX_SIZE / width));
+                  width = MAX_SIZE;
+                }
+              } else {
+                if (height > MAX_SIZE) {
+                  width = Math.round(width * (MAX_SIZE / height));
+                  height = MAX_SIZE;
+                }
+              }
+              
+              const canvas = document.createElement('canvas');
+              canvas.width = width;
+              canvas.height = height;
+              const ctx = canvas.getContext('2d');
+              if (!ctx) {
+                reject(new Error("Failed to get canvas 2d context"));
+                return;
+              }
+              
+              ctx.drawImage(img, 0, 0, width, height);
+              // 압축 품질 92% 적용 (100%시 파일 크기 비대화 방지)
+              const dataUrl = canvas.toDataURL('image/jpeg', 0.92);
+              const base64Data = dataUrl.split(',')[1];
+              resolve({ mimeType: 'image/jpeg', base64: base64Data });
+            };
+            
+            img.onerror = () => {
+              URL.revokeObjectURL(url);
+              reject(new Error("Failed to load image for compression"));
+            };
+            
+            img.src = url;
+          });
+        };
+
+        const { mimeType, base64 } = await processAndCompressImage(file);
 
         if (!isMounted) return;
-
-        const base64 = base64Data.split(',')[1];
-        const mimeType = file.type;
 
         const response = await fetch('/api/translate-image', {
           method: 'POST',
