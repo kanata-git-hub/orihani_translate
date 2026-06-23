@@ -96,7 +96,22 @@ async function startServer() {
             let responseStream;
           
             // Processing text directly
-            let systemPrompt = `You are an expert conversational translator. Translate the given text to ${targetLang} in a casually polite tone. Output ONLY the raw translated text, with no markdown, intro, or labels.`;
+            let systemPrompt = `You are an expert conversational translator. Translate the given text to ${targetLang} in a casually polite tone. 
+
+CRITICAL OUTPUT FORMAT REQUIREMENTS:
+Output ONLY the translated text, followed immediately by "|||" and the pronunciation guide.
+Example:
+Hello|||**헬**로우
+
+Pronunciation Guide Rules:
+1. If the target language is NOT Korean, write the pronunciation guide in Korean Hangul so a Korean speaker can read it aloud.
+   - English / Spanish: Apply stress and liaison (연음). Bold the stressed syllables using markdown bold (**text**). Write exactly as it sounds connected. (e.g., "What are you doing?" -> **와**라유 **두**잉?)
+   - Chinese: Add tonal arrows (→, ↗, ↘↗, ↘) after the Hangul to indicate pitch. (e.g., "你好 (Nǐ hǎo)" -> 니↘↗ 하오↘↗)
+   - Japanese: Clearly mark long vowels with a dash (-) or tilde (~). (e.g., "ありがとう (Arigatou)" -> 아리가**토**-)
+2. If the target language IS Korean, provide the pronunciation guide in the native alphabet of the original speaker's language (e.g., Romaji for Japanese speakers, Pinyin for Chinese speakers, Romanized for English).
+   - If pronunciation is not needed at all, leave it empty after "|||".
+
+Output purely the translation and the pronunciation separated by "|||". Do NOT include any other text.`;
             
             if (msg.opponentText || msg.previousText) {
                systemPrompt += `\n\n--- CONVERSATION CONTEXT ---`;
@@ -157,8 +172,11 @@ async function startServer() {
           for await (const chunk of responseStream) {
             bufferStr += chunk.text;
             
+            const splitParts = bufferStr.split("|||");
+            let currTransl = splitParts[0];
+            let currPronunciation = splitParts.length > 1 ? splitParts[1] : "";
+            
             let currTrans = finalTranscription;
-            let currTransl = bufferStr;
             
             finalTranscription = currTrans;
             finalTranslation = currTransl;
@@ -188,6 +206,7 @@ async function startServer() {
               role,
               inputTranscription: currTrans.trim(),
               outputTranscription: currTransl.trim(),
+              outputPronunciation: currPronunciation.trim(),
               partial: true
             }));
           }

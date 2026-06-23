@@ -8,6 +8,17 @@ import { useAuth } from '../contexts/AuthContext';
 import { HelpModal } from '../components/HelpModal';
 import { LOCALIZATION } from '../constants/localization';
 
+const renderPronunciation = (text: string) => {
+  if (!text) return null;
+  const parts = text.split(/(\*\*.*?\*\*)/g);
+  return parts.map((part, i) => {
+    if (part.startsWith('**') && part.endsWith('**')) {
+      return <strong key={i} className="font-bold">{part.slice(2, -2)}</strong>;
+    }
+    return <span key={i}>{part}</span>;
+  });
+};
+
 export default function App() {
   const [foreignerLang, setForeignerLang] = useLocalStorage<string>('app_foreignerLang', 'ja');
   const [ttsEnabled, setTtsEnabled] = useLocalStorage<boolean>('app_tts_enabled', true);
@@ -39,11 +50,18 @@ export default function App() {
   
   const [foreignerText, setForeignerText] = useState('');
   const [userText, setUserText] = useState('');
+  const [foreignerPronunciation, setForeignerPronunciation] = useState('');
+  const [userPronunciation, setUserPronunciation] = useState('');
   
   const foreignerCompleteRef = useRef('');
   const userCompleteRef = useRef('');
   const foreignerPendingRef = useRef('');
   const userPendingRef = useRef('');
+
+  const foreignerPronunciationCompleteRef = useRef('');
+  const userPronunciationCompleteRef = useRef('');
+  const foreignerPronunciationPendingRef = useRef('');
+  const userPronunciationPendingRef = useRef('');
 
   const [localUnfinalizedForeigner, setLocalUnfinalizedForeigner] = useState('');
   const [localUnfinalizedUser, setLocalUnfinalizedUser] = useState('');
@@ -81,6 +99,8 @@ export default function App() {
     if (activeMic) stopRecording();
     setForeignerText('');
     setUserText('');
+    setForeignerPronunciation('');
+    setUserPronunciation('');
     setTextInputForeigner('');
     setTextInputUser('');
     setLocalUnfinalizedForeigner('');
@@ -89,6 +109,10 @@ export default function App() {
     userCompleteRef.current = '';
     foreignerPendingRef.current = '';
     userPendingRef.current = '';
+    foreignerPronunciationCompleteRef.current = '';
+    userPronunciationCompleteRef.current = '';
+    foreignerPronunciationPendingRef.current = '';
+    userPronunciationPendingRef.current = '';
     lastSpeakerRef.current = null;
     activeTurnContextRef.current = '';
     lastProcessedIndex.current = 0;
@@ -141,6 +165,10 @@ export default function App() {
                if (currentMic === 'foreigner') userPendingRef.current = msg.outputTranscription;
                else foreignerPendingRef.current = msg.outputTranscription;
              }
+             if (msg.outputPronunciation) {
+               if (currentMic === 'foreigner') userPronunciationPendingRef.current = msg.outputPronunciation;
+               else foreignerPronunciationPendingRef.current = msg.outputPronunciation;
+             }
           } else if (msg.turnComplete) {
              // turn is done, move pending to complete
              if (foreignerPendingRef.current) {
@@ -150,6 +178,14 @@ export default function App() {
              if (userPendingRef.current) {
                 userCompleteRef.current += (userCompleteRef.current ? ' ' : '') + userPendingRef.current;
                 userPendingRef.current = '';
+             }
+             if (foreignerPronunciationPendingRef.current) {
+                foreignerPronunciationCompleteRef.current += (foreignerPronunciationCompleteRef.current ? ' ' : '') + foreignerPronunciationPendingRef.current;
+                foreignerPronunciationPendingRef.current = '';
+             }
+             if (userPronunciationPendingRef.current) {
+                userPronunciationCompleteRef.current += (userPronunciationCompleteRef.current ? ' ' : '') + userPronunciationPendingRef.current;
+                userPronunciationPendingRef.current = '';
              }
              setProcessingRole(null);
           } else if (msg.correctedTranscription) {
@@ -181,6 +217,8 @@ export default function App() {
           
           setForeignerText((foreignerCompleteRef.current + " " + foreignerPendingRef.current).trim());
           setUserText((userCompleteRef.current + " " + userPendingRef.current).trim());
+          setForeignerPronunciation((foreignerPronunciationCompleteRef.current + " " + foreignerPronunciationPendingRef.current).trim());
+          setUserPronunciation((userPronunciationCompleteRef.current + " " + userPronunciationPendingRef.current).trim());
         } catch (e) {
           console.error("Error parsing WS message", e);
         }
@@ -234,12 +272,18 @@ export default function App() {
     setActiveMic(role);
     setForeignerText('');
     setUserText('');
+    setForeignerPronunciation('');
+    setUserPronunciation('');
     setLocalUnfinalizedForeigner('');
     setLocalUnfinalizedUser('');
     foreignerCompleteRef.current = '';
     userCompleteRef.current = '';
     foreignerPendingRef.current = '';
     userPendingRef.current = '';
+    foreignerPronunciationCompleteRef.current = '';
+    userPronunciationCompleteRef.current = '';
+    foreignerPronunciationPendingRef.current = '';
+    userPronunciationPendingRef.current = '';
     lastProcessedIndex.current = 0;
     didRestartRef.current = false;
     unfinalizedBufferRef.current = '';
@@ -604,6 +648,11 @@ export default function App() {
                 <p className="text-2xl sm:text-3xl leading-tight font-medium break-words text-white">
                   {foreignerText} {localUnfinalizedForeigner && <span className="opacity-70">{localUnfinalizedForeigner}</span>}
                 </p>
+                {foreignerPronunciation && (
+                  <p className="text-lg sm:text-xl font-normal text-[#ffcd4a]/80 mt-2 break-words">
+                    {renderPronunciation(foreignerPronunciation)}
+                  </p>
+                )}
                 <button 
                   onClick={() => playTTS(foreignerText)} 
                   className="absolute right-0 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full transition-colors"
@@ -725,6 +774,11 @@ export default function App() {
                 <p className="text-2xl sm:text-3xl leading-tight font-medium break-words text-[#552c24]">
                   {userText} {localUnfinalizedUser && <span className="opacity-70">{localUnfinalizedUser}</span>}
                 </p>
+                {userPronunciation && (
+                  <p className="text-lg sm:text-xl font-normal text-[#552c24]/70 mt-2 break-words">
+                    {renderPronunciation(userPronunciation)}
+                  </p>
+                )}
                 <button 
                   onClick={() => playTTS(userText)} 
                   className="absolute right-0 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center bg-black/5 hover:bg-black/10 rounded-full transition-colors"
