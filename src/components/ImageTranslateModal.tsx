@@ -216,7 +216,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                             transform: 'translateZ(0)',
                           }}
                         >
-                          <div className="absolute inset-0">
+                          <div className="absolute -inset-1 sm:-inset-1.5">
                             <FontAdjustableText text={block.translation} onClick={() => setSelectedBlock(block)} />
                           </div>
                         </motion.div>
