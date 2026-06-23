@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, startTransition } from 'react';
-import { X, Loader2 } from 'lucide-react';
+import { X, Loader2, Download } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { toPng } from 'html-to-image';
 
 interface TextBlock {
   original: string;
@@ -73,8 +74,36 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
   const [blocks, setBlocks] = useState<TextBlock[]>([]);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [selectedBlock, setSelectedBlock] = useState<TextBlock | null>(null);
+  const [isSaving, setIsSaving] = useState(false);
   
   const containerRef = useRef<HTMLDivElement>(null);
+  const exportRef = useRef<HTMLDivElement>(null);
+
+  const handleSaveImage = async () => {
+    if (!exportRef.current) return;
+    try {
+      setIsSaving(true);
+      
+      // 화질을 높게 유지하기 위해 pixelRatio를 최소 2 이상으로 설정합니다.
+      const pixelRatio = Math.max(2, window.devicePixelRatio || 1);
+      
+      const dataUrl = await toPng(exportRef.current, {
+        cacheBust: true,
+        pixelRatio: pixelRatio,
+        backgroundColor: '#ffffff'
+      });
+      
+      const link = document.createElement('a');
+      link.download = `translated_${Date.now()}.png`;
+      link.href = dataUrl;
+      link.click();
+    } catch (err) {
+      console.error('Save failed', err);
+      setError('이미지 저장에 실패했습니다.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   useEffect(() => {
     if (!isOpen) {
@@ -304,12 +333,24 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
             {/* Header */}
             <div className="flex items-center justify-between px-6 py-4 border-b border-black/5 bg-white z-20">
           <h2 className="text-xl font-bold text-[#552c24]">이미지 번역</h2>
-          <button 
-            onClick={onClose}
-            className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 transition-colors text-[#552c24]"
-          >
-            <X size={20} />
-          </button>
+          <div className="flex items-center gap-2">
+            {!loading && blocks.length > 0 && (
+              <button 
+                onClick={handleSaveImage}
+                disabled={isSaving}
+                className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 transition-colors text-[#552c24] disabled:opacity-50"
+                title="이미지 저장"
+              >
+                {isSaving ? <Loader2 size={20} className="animate-spin" /> : <Download size={20} />}
+              </button>
+            )}
+            <button 
+              onClick={onClose}
+              className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 transition-colors text-[#552c24]"
+            >
+              <X size={20} />
+            </button>
+          </div>
         </div>
 
         {/* Content */}
@@ -338,7 +379,10 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
 
           {imageSrc && (
             <div className="relative flex justify-center items-center w-full h-full p-2 md:p-6 min-h-0">
-              <div className="relative inline-block max-w-full max-h-full shadow-lg rounded-xl">
+              <div 
+                ref={exportRef}
+                className="relative inline-block max-w-full max-h-full shadow-lg rounded-xl"
+              >
                 <img 
                   src={imageSrc} 
                   alt="Original to translate" 
