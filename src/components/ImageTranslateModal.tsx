@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useRef, useEffect, useLayoutEffect, startTransition } from 'react';
 import { X, Loader2, Search } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -115,7 +115,9 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
         
         // 3. 상태 동기화 단절 및 보이지 않는 렌더링
         // 박스들을 DOM에 먼저 주입하되, loading 상태는 유지합니다.
-        setBlocks(data.blocks || []);
+        startTransition(() => {
+          setBlocks(data.blocks || []);
+        });
         
         // 박스들이 Reflow 되면서 브라우저가 버벅거릴 수 있으므로 300ms 후에 loading을 풀어줍니다.
         await new Promise(resolve => setTimeout(resolve, 300));
@@ -199,12 +201,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                 />
                 
                 {blocks.length > 0 && (
-                  <motion.div 
-                    className="absolute inset-0"
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: loading ? 0 : 1 }}
-                    transition={{ duration: 0.4, delay: 0.1 }}
-                  >
+                  <div className="absolute inset-0">
                     {blocks.map((block, idx) => {
                       const [ymin, xmin, ymax, xmax] = block.box;
                       const top = `${ymin / 10}%`;
@@ -213,9 +210,16 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                       const width = `${(xmax - xmin) / 10}%`;
 
                       return (
-                        <div
+                        <motion.div
                           key={idx}
                           className="absolute z-20"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: loading ? 0 : 1 }}
+                          transition={{ 
+                            duration: 0.4, 
+                            delay: loading ? 0 : 0.1 + (idx * 0.03),
+                            ease: "easeOut" 
+                          }}
                           style={{
                             top,
                             left,
@@ -228,10 +232,10 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                           <div className="absolute inset-x-0.5 inset-y-0.5">
                             <FontAdjustableText text={block.translation} onClick={() => setSelectedBlock(block)} />
                           </div>
-                        </div>
+                        </motion.div>
                       );
                     })}
-                  </motion.div>
+                  </div>
                 )}
               </div>
             </div>
