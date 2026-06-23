@@ -18,7 +18,7 @@ interface ImageTranslateModalProps {
 const FontAdjustableText = ({ text, onClick }: { text: string, onClick?: () => void }) => {
   return (
     <div 
-      className="w-full h-full relative cursor-pointer rounded-md overflow-hidden bg-white/40 backdrop-blur-md shadow-sm border border-white/40 hover:bg-white/50 transition-colors duration-200"
+      className="w-full h-full relative cursor-pointer rounded-md overflow-hidden bg-white/90 shadow-sm border border-white/40 hover:bg-white transition-colors duration-200"
       onClick={onClick}
     >
       <div 
@@ -44,7 +44,7 @@ const FontAdjustableText = ({ text, onClick }: { text: string, onClick?: () => v
 };
 
 export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: ImageTranslateModalProps) {
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [blocks, setBlocks] = useState<TextBlock[]>([]);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
@@ -60,6 +60,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
         setImageSrc(null);
         setError('');
         setSelectedBlock(null);
+        setLoading(true);
       }, 400);
       return () => clearTimeout(timer);
     }
@@ -75,8 +76,9 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
     let isMounted = true;
 
     const processImage = async () => {
-      // 2. 모션과 연산의 분리 (Wait for modal motion to complete)
-      await new Promise(resolve => setTimeout(resolve, 350));
+      // 2. 모션과 연산의 분리 (Absolute Delay)
+      // 모달이 처음 뜨는 애니메이션이 완전히 끝날 때까지 600ms 동안 무거운 작업을 하지 않습니다.
+      await new Promise(resolve => setTimeout(resolve, 600));
       if (!isMounted) return;
 
       try {
@@ -110,7 +112,14 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
 
         const data = await response.json();
         if (!isMounted) return;
+        
+        // 3. 상태 동기화 단절 및 보이지 않는 렌더링
+        // 박스들을 DOM에 먼저 주입하되, loading 상태는 유지합니다.
         setBlocks(data.blocks || []);
+        
+        // 박스들이 Reflow 되면서 브라우저가 버벅거릴 수 있으므로 300ms 후에 loading을 풀어줍니다.
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
       } catch (err: any) {
         if (!isMounted) return;
         setError(err.message || 'Error processing image');
@@ -157,12 +166,21 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
 
         {/* Content */}
         <div className="flex-1 overflow-hidden relative flex items-center justify-center bg-[#e5e5e5] z-10 w-full h-full">
-          {loading && (
-            <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-white/90">
-              <Loader2 className="w-12 h-12 animate-spin text-[#ffcd4a] mb-4" />
-              <p className="text-[#552c24] font-medium animate-pulse">이미지를 분석하고 번역중입니다...</p>
-            </div>
-          )}
+          <AnimatePresence>
+            {loading && (
+              <motion.div 
+                key="loading-overlay"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.4 }}
+                className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-white/90"
+              >
+                <Loader2 className="w-12 h-12 animate-spin text-[#ffcd4a] mb-4" />
+                <p className="text-[#552c24] font-medium animate-pulse">이미지를 분석하고 번역중입니다...</p>
+              </motion.div>
+            )}
+          </AnimatePresence>
           
           {error && (
             <div className="absolute z-30 top-4 left-4 right-4 bg-red-100 text-red-700 p-4 rounded-xl text-center font-medium shadow-md">
@@ -180,8 +198,13 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                   style={{ width: 'auto', height: 'auto' }}
                 />
                 
-                {!loading && blocks.length > 0 && (
-                  <div className="absolute inset-0">
+                {blocks.length > 0 && (
+                  <motion.div 
+                    className="absolute inset-0"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: loading ? 0 : 1 }}
+                    transition={{ duration: 0.4, delay: 0.1 }}
+                  >
                     {blocks.map((block, idx) => {
                       const [ymin, xmin, ymax, xmax] = block.box;
                       const top = `${ymin / 10}%`;
@@ -198,6 +221,8 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                             left,
                             height,
                             width,
+                            willChange: 'transform, opacity',
+                            transform: 'translateZ(0)',
                           }}
                         >
                           <div className="absolute inset-x-0.5 inset-y-0.5">
@@ -206,7 +231,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                         </div>
                       );
                     })}
-                  </div>
+                  </motion.div>
                 )}
               </div>
             </div>
