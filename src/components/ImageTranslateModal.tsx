@@ -107,6 +107,88 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
 
       try {
         const processAndCompressImage = async (f: File): Promise<{ mimeType: string, base64: string }> => {
+          // 1. Web Worker와 OffscreenCanvas 지원 여부 확인 (최신 삼성 인터넷, 크롬 등 완벽 지원)
+          if (window.Worker && window.OffscreenCanvas && window.createImageBitmap) {
+            try {
+              // createImageBitmap은 메인 스레드를 멈추지 않는 매우 빠른 비동기 디코딩 함수입니다.
+              const imageBitmap = await createImageBitmap(f);
+              
+              return await new Promise((resolve, reject) => {
+                // 워커 소스 코드를 문자열로 바로 정의 (프론트엔드 환경에서 별도 파일 없이 구동)
+                const workerCode = `
+                  self.onmessage = async function(e) {
+                    try {
+                      const { imageBitmap, maxSize, quality } = e.data;
+                      let width = imageBitmap.width;
+                      let height = imageBitmap.height;
+
+                      if (width > height) {
+                        if (width > maxSize) {
+                          height = Math.round(height * (maxSize / width));
+                          width = maxSize;
+                        }
+                      } else {
+                        if (height > maxSize) {
+                          width = Math.round(width * (maxSize / height));
+                          height = maxSize;
+                        }
+                      }
+
+                      // 화면에 보이지 않는 워커 전용 캔버스 생성
+                      const canvas = new OffscreenCanvas(width, height);
+                      const ctx = canvas.getContext('2d');
+                      ctx.drawImage(imageBitmap, 0, 0, width, height);
+
+                      // Web Worker 내에서 압축 처리
+                      const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: quality });
+                      
+                      const reader = new FileReader();
+                      reader.onloadend = () => {
+                        // 결과값을 메인 스레드로 전송
+                        self.postMessage({ success: true, base64: reader.result, mimeType: 'image/jpeg' });
+                      };
+                      reader.onerror = () => {
+                        self.postMessage({ success: false, error: 'Failed to read blob object' });
+                      };
+                      reader.readAsDataURL(blob);
+                    } catch (err) {
+                      self.postMessage({ success: false, error: err.message });
+                    }
+                  };
+                `;
+                
+                const blobCode = new Blob([workerCode], { type: 'application/javascript' });
+                const workerUrl = URL.createObjectURL(blobCode);
+                const worker = new Worker(workerUrl);
+
+                worker.onmessage = (e) => {
+                  URL.revokeObjectURL(workerUrl);
+                  worker.terminate();
+                  if (e.data.success) {
+                    // "data:image/jpeg;base64," 접두사 제거
+                    const base64Data = e.data.base64.split(',')[1];
+                    resolve({ mimeType: e.data.mimeType, base64: base64Data });
+                  } else {
+                    reject(new Error(e.data.error));
+                  }
+                };
+
+                worker.onerror = (err) => {
+                  URL.revokeObjectURL(workerUrl);
+                  worker.terminate();
+                  reject(err);
+                };
+
+                // 워커로 비트맵 "소유권"을 완전히 넘김 (Zero-copy 방식, 초고속)
+                worker.postMessage({ imageBitmap, maxSize: 2048, quality: 0.92 }, [imageBitmap]);
+              });
+            } catch (err) {
+              console.warn('Web Worker compression failed, falling back to main thread.', err);
+              // 웹 워커 처리가 모종의 이유로 실패하면, 기존 로직(메인 스레드 방식)으로 자연스럽게 넘어갑니다.
+            }
+          }
+
+          // --- [폴백(Fallback)] 웹 워커를 지원하거나 실패했을 경우 실행되는 메인 스레드 로직 ---
           return new Promise((resolve, reject) => {
             const img = new Image();
             const url = URL.createObjectURL(f);
