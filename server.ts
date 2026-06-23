@@ -270,7 +270,7 @@ Output purely the translation and the pronunciation separated by "|||". Do NOT i
       const { imageParams, targetLang } = req.body; 
       const ai = getAi();
       
-      const systemPrompt = `You are an OCR and translation expert. Translate all the text found in the image to ${targetLang}. For each block of text translated, provide the \`[ymin, xmin, ymax, xmax]\` coordinates normalized from 0 to 1000 representing the bounding box of the original text. Return a strict JSON array of objects with keys: \`original\` (string), \`translation\` (string), \`box\` (array of 4 numbers).`;
+      const systemPrompt = `You are an OCR and translation expert. First, group the text found in the image into logical paragraph blocks (do NOT split by individual words or single lines unless they stand alone). Then, translate each paragraph block to ${targetLang}. For each paragraph block, provide the \`[ymin, xmin, ymax, xmax]\` coordinates normalized from 0 to 1000 representing the bounding box encompassing the entire paragraph in the original image. Return a strict JSON array of objects with keys: \`original\` (string), \`translation\` (string), \`box\` (array of 4 numbers).`;
 
       const response = await fetchWithBackoff(() => ai.models.generateContent({
         model: "gemini-3.5-flash",
