@@ -11,7 +11,7 @@ import { ImageTranslateModal } from '../components/ImageTranslateModal';
 import { renderPronunciation } from '../utils/textUtils';
 import { ForeignerPanel } from '../components/chat/ForeignerPanel';
 import { UserPanel } from '../components/chat/UserPanel';
-import { toJpeg } from 'html-to-image';
+import { domToJpeg } from 'modern-screenshot';
 
 export default function App() {
   const [foreignerLang, setForeignerLang] = useLocalStorage<string>('app_foreignerLang', 'ja');
@@ -89,8 +89,8 @@ export default function App() {
       // 폰트나 레이아웃이 준비될 수 있도록 약간의 지연
       await new Promise(resolve => setTimeout(resolve, 100));
       const pixelRatio = Math.max(2, window.devicePixelRatio || 1);
-      const dataUrl = await toJpeg(appContainerRef.current, {
-        pixelRatio: pixelRatio,
+      const dataUrl = await domToJpeg(appContainerRef.current, {
+        scale: pixelRatio,
         quality: 0.95,
         backgroundColor: '#ffffff'
       });
