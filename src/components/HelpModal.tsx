@@ -56,8 +56,8 @@ export function HelpModal({ onClose }: HelpModalProps) {
                 </h3>
                 <ol className="list-decimal pl-4 space-y-1.5 text-black/80 font-medium">
                   <li>왼쪽 위에서 번역할 언어 선택</li>
-                  <li><strong>아래쪽 흰색 배경</strong>의 마이크 버튼(<Mic size={15} className="inline text-[#552c24] -mt-0.5" />) 누르기</li>
-                  <li>말하기가 끝나면 정지 버튼(<Square size={13} fill="currentColor" className="inline text-red-500 -mt-0.5" />) 누르기</li>
+                  <li><strong>아래쪽 흰색 배경</strong>의 <strong className="text-[#552c24] bg-[#ffcd4a] px-1.5 py-0.5 rounded-md">마이크 버튼</strong>(<Mic size={15} className="inline text-[#552c24] -mt-0.5" />) 누르기</li>
+                  <li>말하기가 끝나면 <strong className="text-[#552c24] bg-[#ffcd4a] px-1.5 py-0.5 rounded-md">정지 버튼</strong>(<Square size={13} fill="currentColor" className="inline text-red-500 -mt-0.5" />) 누르기</li>
                   <li>외국어로 번역되어 음성 출력 완료</li>
                 </ol>
               </div>
@@ -67,9 +67,9 @@ export function HelpModal({ onClose }: HelpModalProps) {
                   <span>👂</span> 상대방이 말할 때 <span className="font-normal text-xs opacity-70 ml-1">(외국어)</span>
                 </h3>
                 <ol className="list-decimal pl-4 space-y-1.5 text-black/80 font-medium">
-                  <li><strong>위쪽 갈색 배경</strong>의 마이크 버튼(<Mic size={15} className="inline text-[#552c24] -mt-0.5" />) 누르기</li>
+                  <li><strong>위쪽 갈색 배경</strong>의 <strong className="text-[#552c24] bg-[#ffcd4a] px-1.5 py-0.5 rounded-md">마이크 버튼</strong>(<Mic size={15} className="inline text-[#552c24] -mt-0.5" />) 누르기</li>
                   <li>상대방 이야기 듣기</li>
-                  <li>말이 끝나면 정지 버튼(<Square size={13} fill="currentColor" className="inline text-red-500 -mt-0.5" />) 누르기</li>
+                  <li>말이 끝나면 <strong className="text-[#552c24] bg-[#ffcd4a] px-1.5 py-0.5 rounded-md">정지 버튼</strong>(<Square size={13} fill="currentColor" className="inline text-red-500 -mt-0.5" />) 누르기</li>
                   <li>한국어로 번역되어 음성 출력 완료</li>
                 </ol>
               </div>
@@ -82,10 +82,10 @@ export function HelpModal({ onClose }: HelpModalProps) {
                 <span>✍️</span> 문자 번역
               </h3>
               <ol className="list-decimal pl-4 space-y-2 text-black/80 font-medium">
-                <li>하단 또는 중앙 메뉴에서 <strong>연필 버튼</strong>(<Pencil size={15} className="inline text-[#552c24] -mt-0.5" />) 누르기</li>
+                <li>하단 또는 중앙 메뉴에서 <strong className="text-[#552c24] bg-[#ffcd4a] px-1.5 py-0.5 rounded-md">연필 버튼</strong>(<Pencil size={15} className="inline text-[#552c24] -mt-0.5" />) 누르기</li>
                 <li>번역하고 싶은 텍스트 직접 입력하기</li>
-                <li>우측의 <strong>전송 버튼</strong>(<Send size={15} className="inline text-[#552c24] -mt-0.5" />) 눌러서 번역 결과 확인</li>
-                <li>결과 문장 옆의 <strong>스피커 버튼</strong>(<Volume2 size={15} className="inline text-[#552c24] -mt-0.5" />)을 눌러 음성 듣기</li>
+                <li>우측의 <strong className="text-[#552c24] bg-[#ffcd4a] px-1.5 py-0.5 rounded-md">전송 버튼</strong>(<Send size={15} className="inline text-[#552c24] -mt-0.5" />) 눌러서 번역 결과 확인</li>
+                <li>결과 문장 옆의 <strong className="text-[#552c24] bg-[#ffcd4a] px-1.5 py-0.5 rounded-md">스피커 버튼</strong>(<Volume2 size={15} className="inline text-[#552c24] -mt-0.5" />)을 눌러 음성 듣기</li>
               </ol>
             </div>
           )}
@@ -96,10 +96,10 @@ export function HelpModal({ onClose }: HelpModalProps) {
                 <span>📸</span> 이미지 번역
               </h3>
               <ol className="list-decimal pl-4 space-y-2 text-black/80 font-medium">
-                <li>메뉴 중앙의 <strong>카메라 버튼</strong>(<Camera size={15} className="inline text-[#552c24] -mt-0.5" />) 누르기</li>
+                <li>메뉴 중앙의 <strong className="text-[#552c24] bg-[#ffcd4a] px-1.5 py-0.5 rounded-md">카메라 버튼</strong>(<Camera size={15} className="inline text-[#552c24] -mt-0.5" />) 누르기</li>
                 <li>번역할 이미지(메뉴판, 간판 등) 선택</li>
                 <li>잠시 기다리면 이미지 위 텍스트가 번역됨</li>
-                <li>번역된 이미지를 <strong>저장 버튼</strong>(<Download size={15} className="inline text-[#552c24] -mt-0.5" />)을 눌러 보관하기</li>
+                <li>번역된 이미지를 <strong className="text-[#552c24] bg-[#ffcd4a] px-1.5 py-0.5 rounded-md">저장 버튼</strong>(<Download size={15} className="inline text-[#552c24] -mt-0.5" />)을 눌러 보관하기</li>
               </ol>
             </div>
           )}
