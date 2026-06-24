@@ -40,7 +40,7 @@ const FontAdjustableText = ({ text, box, onClick }: { text: string, box: number[
 
   return (
     <div 
-      className="@container w-full h-full flex flex-col items-center justify-center relative cursor-pointer rounded-md overflow-hidden bg-white/85 backdrop-blur-md shadow-[0_2px_8px_rgba(0,0,0,0.15)] border border-white/40 hover:bg-white/95 hover:shadow-[0_4px_12px_rgba(0,0,0,0.25)] hover:-translate-y-[1px] transition-all duration-200"
+      className="@container w-full h-full flex flex-col items-center justify-center relative cursor-pointer rounded-md overflow-hidden bg-white/40 backdrop-blur-md shadow-[0_2px_10px_rgba(0,0,0,0.1)] border border-white/60 hover:bg-white/60 hover:shadow-[0_4px_15px_rgba(0,0,0,0.15)] hover:-translate-y-[1px] transition-all duration-200"
       onClick={onClick}
       style={{ containerType: 'size' as any }}
     >
@@ -50,7 +50,7 @@ const FontAdjustableText = ({ text, box, onClick }: { text: string, box: number[
           style={{ 
             lineHeight: 1.25,
             // 수학적으로 계산된 optimalCqw를 적용하되, 지나치게 뭉개지는 것을 방지하기 위해 4px 최후 마지노선을 둡니다.
-            fontSize: `clamp(4px, min(40cqh, ${optimalCqw}cqw), 28px)`,
+            fontSize: `clamp(4px, min(80cqh, ${optimalCqw}cqw), 72px)`,
             wordBreak: 'break-word',
             overflowWrap: 'break-word',
             display: '-webkit-box',
