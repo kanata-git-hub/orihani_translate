@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, startTransition } from 'react';
-import { X, Loader2, Download } from 'lucide-react';
+import { X, Loader2, Download, Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { toJpeg } from 'html-to-image';
 
@@ -78,9 +78,21 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [selectedBlock, setSelectedBlock] = useState<TextBlock | null>(null);
   const [isSaving, setIsSaving] = useState(false);
+  const [viewMode, setViewMode] = useState<'image' | 'text'>('image');
+  const [copiedIndex, setCopiedIndex] = useState<number | 'all' | null>(null);
   
   const containerRef = useRef<HTMLDivElement>(null);
   const exportRef = useRef<HTMLDivElement>(null);
+
+  const handleCopy = async (text: string, index: number | 'all') => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedIndex(index);
+      setTimeout(() => setCopiedIndex(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy text:', err);
+    }
+  };
 
   const handleSaveImage = async () => {
     if (!exportRef.current) return;
@@ -126,15 +138,8 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
     let isMounted = true;
 
     // 1. 초고속 이미지 선-렌더링 (Fast initial image rendering)
-    // Safari html-to-image 호환성을 위해 Object URL 대신 Data URL을 사용합니다.
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      if (e.target?.result && isMounted) {
-        setImageSrc(e.target.result as string);
-      }
-    };
-    reader.readAsDataURL(file);
-
+    // Safari html-to-image 호환성 및 메모리 문제(초고해상도 원본 렌더링 시 하얗게 나오는 현상)를 방지하기 위해,
+    // 초기 원본 Data URL 렌더링을 생략하고, 워커에서 압축된 이미지만을 렌더링합니다.
     setLoading(true);
     setError('');
 
@@ -278,6 +283,9 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
         const { mimeType, base64 } = await processAndCompressImage(file);
 
         if (!isMounted) return;
+        
+        // Safari html-to-image 버그 방지 (초고해상도 원본 대신 압축된 이미지 사용)
+        setImageSrc(`data:${mimeType};base64,${base64}`);
 
         const response = await fetch('/api/translate-image', {
           method: 'POST',
@@ -340,27 +348,47 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
             className="relative w-full max-w-[95vw] lg:max-w-6xl h-full max-h-[95vh] bg-gray-50 rounded-3xl shadow-2xl flex flex-col overflow-hidden"
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-black/5 bg-white z-20">
-          <h2 className="text-xl font-bold text-[#552c24]">이미지 번역</h2>
-          <div className="flex items-center gap-2">
-            {!loading && blocks.length > 0 && (
-              <button 
-                onClick={handleSaveImage}
-                disabled={isSaving}
-                className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 transition-colors text-[#552c24] disabled:opacity-50"
-                title="이미지 저장"
-              >
-                {isSaving ? <Loader2 size={20} className="animate-spin" /> : <Download size={20} />}
-              </button>
-            )}
-            <button 
-              onClick={onClose}
-              className="w-10 h-10 flex items-center justify-center rounded-full bg-black/5 hover:bg-black/10 transition-colors text-[#552c24]"
-            >
-              <X size={20} />
-            </button>
-          </div>
-        </div>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-black/5 bg-white z-20">
+              <div className="flex items-center gap-3">
+                <h2 className="text-lg font-bold text-[#552c24] whitespace-nowrap">이미지 번역</h2>
+                
+                {!loading && blocks.length > 0 && (
+                  <div className="flex bg-gray-100/80 rounded-lg p-0.5 flex-shrink-0">
+                    <button 
+                      onClick={() => setViewMode('image')}
+                      className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${viewMode === 'image' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      이미지
+                    </button>
+                    <button 
+                      onClick={() => setViewMode('text')}
+                      className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${viewMode === 'text' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      문자
+                    </button>
+                  </div>
+                )}
+              </div>
+              
+              <div className="flex items-center gap-1">
+                {!loading && blocks.length > 0 && viewMode === 'image' && (
+                  <button 
+                    onClick={handleSaveImage}
+                    disabled={isSaving}
+                    className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-black/5 transition-colors text-[#552c24] disabled:opacity-50"
+                    title="이미지 저장"
+                  >
+                    {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
+                  </button>
+                )}
+                <button 
+                  onClick={onClose}
+                  className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-black/5 transition-colors text-[#552c24]"
+                >
+                  <X size={20} />
+                </button>
+              </div>
+            </div>
 
         {/* Content */}
         <div className="flex-1 overflow-hidden relative flex items-center justify-center bg-[#e5e5e5] z-10 w-full h-full">
@@ -386,7 +414,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
             </div>
           )}
 
-          {imageSrc && (
+          {imageSrc && viewMode === 'image' && (
             <div className="relative flex justify-center items-center w-full h-full p-2 md:p-6 min-h-0">
               <div 
                 ref={exportRef}
@@ -439,11 +467,62 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
               </div>
             </div>
           )}
+
+          {!loading && blocks.length > 0 && viewMode === 'text' && (
+            <div className="absolute inset-0 overflow-y-auto p-4 flex justify-center items-start bg-gray-50/50">
+              <div className="w-full max-w-2xl bg-white rounded-xl shadow-sm border border-black/5 p-5 sm:p-8 my-2 sm:my-8 flex flex-col gap-6">
+                
+                {/* 번역문 그룹 */}
+                <motion.div 
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3 }}
+                  className="flex flex-col gap-3"
+                >
+                  <h3 className="text-sm font-bold text-gray-500 border-b border-gray-100 pb-2">번역문</h3>
+                  <div className="flex flex-col gap-1.5">
+                    {blocks.map((block, idx) => (
+                      <p key={idx} className="text-[16px] font-bold text-gray-900 leading-snug break-keep">
+                        {block.translation}
+                      </p>
+                    ))}
+                  </div>
+                </motion.div>
+
+                {/* 원문 그룹 */}
+                <motion.div 
+                  initial={{ opacity: 0, y: 5 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, delay: 0.1 }}
+                  className="flex flex-col gap-3"
+                >
+                  <h3 className="text-sm font-bold text-gray-500 border-b border-gray-100 pb-2">원문</h3>
+                  <div className="flex flex-col gap-0.5">
+                    {blocks.map((block, idx) => (
+                      <div key={idx} className="flex items-start gap-3 group">
+                        <p className="text-[14px] text-gray-400 font-medium leading-snug break-all flex-1 py-1">
+                          {block.original}
+                        </p>
+                        <button
+                          onClick={() => handleCopy(block.original, idx)}
+                          className="w-7 h-7 flex items-center justify-center flex-shrink-0 rounded-full bg-gray-50 hover:bg-gray-100 opacity-0 group-hover:opacity-100 transition-all text-gray-400 hover:text-gray-600 mt-0.5"
+                          title="원문 복사"
+                        >
+                          {copiedIndex === idx ? <Check size={14} className="text-green-600" /> : <Copy size={14} />}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </motion.div>
+
+              </div>
+            </div>
+          )}
         </div>
         
         {/* Bottom Details Panel */}
         <AnimatePresence>
-          {selectedBlock && (
+          {selectedBlock && viewMode === 'image' && (
             <motion.div 
               initial={{ y: "100%", opacity: 0 }}
               animate={{ y: 0, opacity: 1 }}
