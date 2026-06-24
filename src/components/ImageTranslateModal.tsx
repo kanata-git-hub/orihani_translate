@@ -123,13 +123,20 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
     
     if (!file) return;
 
+    let isMounted = true;
+
     // 1. 초고속 이미지 선-렌더링 (Fast initial image rendering)
-    const objectUrl = URL.createObjectURL(file);
-    setImageSrc(objectUrl);
+    // Safari html-to-image 호환성을 위해 Object URL 대신 Data URL을 사용합니다.
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      if (e.target?.result && isMounted) {
+        setImageSrc(e.target.result as string);
+      }
+    };
+    reader.readAsDataURL(file);
+
     setLoading(true);
     setError('');
-
-    let isMounted = true;
 
     const processImage = async () => {
       // 2. 모션과 연산의 분리 (Absolute Delay)
@@ -312,7 +319,6 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
 
     return () => {
       isMounted = false;
-      URL.revokeObjectURL(objectUrl);
     };
   }, [isOpen, file, targetLang]);
 
