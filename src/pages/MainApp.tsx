@@ -11,6 +11,7 @@ import { ImageTranslateModal } from '../components/ImageTranslateModal';
 import { renderPronunciation } from '../utils/textUtils';
 import { ForeignerPanel } from '../components/chat/ForeignerPanel';
 import { UserPanel } from '../components/chat/UserPanel';
+import { toJpeg } from 'html-to-image';
 
 export default function App() {
   const [foreignerLang, setForeignerLang] = useLocalStorage<string>('app_foreignerLang', 'ja');
@@ -77,6 +78,34 @@ export default function App() {
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didRestartRef = useRef<boolean>(false);
   const outCtxRef = useRef<AudioContext | null>(null);
+
+  const appContainerRef = useRef<HTMLDivElement>(null);
+  const [isCapturing, setIsCapturing] = useState(false);
+
+  const handleCaptureAndDownload = async () => {
+    if (!appContainerRef.current) return;
+    setIsCapturing(true);
+    try {
+      // 폰트나 레이아웃이 준비될 수 있도록 약간의 지연
+      await new Promise(resolve => setTimeout(resolve, 100));
+      const pixelRatio = Math.max(2, window.devicePixelRatio || 1);
+      const dataUrl = await toJpeg(appContainerRef.current, {
+        pixelRatio: pixelRatio,
+        quality: 0.95,
+        backgroundColor: '#ffffff'
+      });
+      
+      const link = document.createElement('a');
+      link.download = `translation_capture_${Date.now()}.jpg`;
+      link.href = dataUrl;
+      link.click();
+    } catch (error) {
+      console.error('Capture failed', error);
+      alert('화면 캡처에 실패했습니다.');
+    } finally {
+      setIsCapturing(false);
+    }
+  };
 
   const lastUserOriginalSpeechRef = useRef<{text: string, time: number}>({text: '', time: 0});
   const lastForeignerOriginalSpeechRef = useRef<{text: string, time: number}>({text: '', time: 0});
@@ -569,7 +598,7 @@ export default function App() {
   const userLoc = LOCALIZATION.ko;
 
   return (
-    <div className="flex flex-col h-[100dvh] w-full max-w-md mx-auto relative shadow-2xl overflow-y-auto font-sans bg-white">
+    <div ref={appContainerRef} className="flex flex-col h-[100dvh] w-full max-w-md mx-auto relative shadow-2xl overflow-y-auto font-sans bg-white">
       <ForeignerPanel
         foreignLoc={foreignLoc}
         foreignerLang={foreignerLang}
@@ -618,6 +647,8 @@ export default function App() {
         imageInputUserRef={imageInputUserRef}
         handleImageChange={handleImageChange}
         setShowHelp={setShowHelp}
+        handleCaptureAndDownload={handleCaptureAndDownload}
+        isCapturing={isCapturing}
       />
 
       {/* Help Modal */}

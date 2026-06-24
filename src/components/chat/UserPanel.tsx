@@ -1,5 +1,5 @@
 import React from 'react';
-import { Mic, Square, Volume2, Loader2, Pencil, Send, Camera, HelpCircle } from 'lucide-react';
+import { Mic, Square, Volume2, Loader2, Pencil, Send, Camera, HelpCircle, Download } from 'lucide-react';
 import { renderPronunciation } from '../../utils/textUtils';
 
 interface UserPanelProps {
@@ -20,6 +20,8 @@ interface UserPanelProps {
   imageInputUserRef: React.RefObject<HTMLInputElement>;
   handleImageChange: (e: React.ChangeEvent<HTMLInputElement>, role: 'user') => void;
   setShowHelp: (show: boolean) => void;
+  handleCaptureAndDownload: () => void;
+  isCapturing: boolean;
 }
 
 export const UserPanel: React.FC<UserPanelProps> = ({
@@ -27,7 +29,8 @@ export const UserPanel: React.FC<UserPanelProps> = ({
   userText, localUnfinalizedUser, userPronunciation,
   textInputUser, setTextInputUser, handleSendText,
   playingTTS, playTTS, processingRole,
-  imageInputUserRef, handleImageChange, setShowHelp
+  imageInputUserRef, handleImageChange, setShowHelp,
+  handleCaptureAndDownload, isCapturing
 }) => {
   return (
     <div className="flex-1 shrink-0 relative bg-white text-[#552c24] flex flex-col p-8 pt-24">
@@ -132,23 +135,27 @@ export const UserPanel: React.FC<UserPanelProps> = ({
         </div>
       </div>
       
-      <div className="absolute bottom-6 left-6 z-10">
-        <div className="flex items-center gap-3">
-          {/* Removed standalone mode toggle button from here */}
-        </div>
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10">
+        <button 
+          onClick={handleCaptureAndDownload}
+          disabled={isCapturing}
+          className="flex items-center gap-1.5 bg-black/5 hover:bg-black/10 transition-colors px-3 py-1.5 rounded-full text-xs font-bold text-[#552c24] disabled:opacity-50"
+          title="대화 캡처하기"
+        >
+          {isCapturing ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+          화면 캡처
+        </button>
       </div>
 
-      {inputTypeUser === 'mic' && (
-        <div className="absolute bottom-6 right-6 z-10">
-          <button 
-            onClick={() => setShowHelp(true)}
-            className="flex items-center gap-1.5 bg-black/5 hover:bg-black/10 transition-colors px-3 py-1.5 rounded-full text-xs font-bold text-[#552c24]"
-          >
-            <HelpCircle size={15} />
-            사용법
-          </button>
-        </div>
-      )}
+      <div className="absolute bottom-6 right-6 z-10">
+        <button 
+          onClick={() => setShowHelp(true)}
+          className="flex items-center gap-1.5 bg-black/5 hover:bg-black/10 transition-colors px-3 py-1.5 rounded-full text-xs font-bold text-[#552c24]"
+        >
+          <HelpCircle size={15} />
+          사용법
+        </button>
+      </div>
     </div>
   );
 };
