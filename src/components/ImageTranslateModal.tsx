@@ -38,6 +38,9 @@ const FontAdjustableText = ({ text, box, onClick }: { text: string, box: number[
   // 4. 표시할 텍스트가 차지하게 될 실제 줄(Line) 수를 역산하여 유연하게 클램핑
   const optimalLines = Math.ceil(targetLen / Math.max(1, charsPerLine));
 
+  // 5. 세로 높이 기준 최대 폰트 크기 계산 (줄 수와 줄간격 1.25를 고려하여 세로로 넘치지 않게 제한)
+  const maxCqh = 85 / (Math.max(1, optimalLines) * 1.25);
+
   return (
     <div 
       className="@container w-full h-full flex flex-col items-center justify-center relative cursor-pointer rounded-md overflow-hidden bg-white/75 backdrop-blur-md shadow-[0_2px_10px_rgba(0,0,0,0.1)] border border-white/60 hover:bg-white/85 hover:shadow-[0_4px_15px_rgba(0,0,0,0.15)] hover:-translate-y-[1px] transition-all duration-200"
@@ -49,8 +52,8 @@ const FontAdjustableText = ({ text, box, onClick }: { text: string, box: number[
           className="text-[#3a1d17] font-bold"
           style={{ 
             lineHeight: 1.25,
-            // 수학적으로 계산된 optimalCqw를 적용하되, 지나치게 뭉개지는 것을 방지하기 위해 4px 최후 마지노선을 둡니다.
-            fontSize: `clamp(4px, min(90cqh, ${optimalCqw}cqw), 120px)`,
+            // 수학적으로 계산된 optimalCqw를 적용하되, 세로로 넘치지 않도록 maxCqh 상한을 적용
+            fontSize: `clamp(4px, min(${maxCqh}cqh, ${optimalCqw}cqw), 120px)`,
             wordBreak: 'break-word',
             overflowWrap: 'break-word',
             display: '-webkit-box',
