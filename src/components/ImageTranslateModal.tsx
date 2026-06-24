@@ -43,7 +43,7 @@ const FontAdjustableText = ({ text, box, onClick }: { text: string, box: number[
 
   return (
     <div 
-      className="@container w-full h-full flex flex-col items-center justify-center relative cursor-pointer rounded-md overflow-hidden bg-white/75 backdrop-blur-md shadow-[0_2px_10px_rgba(0,0,0,0.1)] border border-white/60 hover:bg-white/85 hover:shadow-[0_4px_15px_rgba(0,0,0,0.15)] hover:-translate-y-[1px] transition-all duration-200"
+      className="@container w-full h-full flex flex-col items-center justify-center relative cursor-pointer rounded-md overflow-hidden bg-white/85 backdrop-blur-md shadow-[0_2px_10px_rgba(0,0,0,0.1)] border border-white/60 hover:bg-white/90 hover:shadow-[0_4px_15px_rgba(0,0,0,0.15)] hover:-translate-y-[1px] transition-all duration-200"
       onClick={onClick}
       style={{ containerType: 'size' as any }}
     >
