@@ -139,10 +139,10 @@ export const UserPanel: React.FC<UserPanelProps> = ({
         <button 
           onClick={handleCaptureAndDownload}
           disabled={isCapturing}
-          className="flex items-center gap-1.5 bg-black/5 hover:bg-black/10 transition-colors px-3 py-1.5 rounded-full text-xs font-bold text-[#552c24] disabled:opacity-50"
+          className="flex items-center gap-2 bg-black/5 hover:bg-black/10 transition-colors px-4 py-2 rounded-full text-sm font-bold text-[#552c24] disabled:opacity-50"
           title="대화 캡처하기"
         >
-          {isCapturing ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+          {isCapturing ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
           화면 캡처
         </button>
       </div>
@@ -150,9 +150,9 @@ export const UserPanel: React.FC<UserPanelProps> = ({
       <div className="absolute bottom-6 right-6 z-10">
         <button 
           onClick={() => setShowHelp(true)}
-          className="flex items-center gap-1.5 bg-black/5 hover:bg-black/10 transition-colors px-3 py-1.5 rounded-full text-xs font-bold text-[#552c24]"
+          className="flex items-center gap-2 bg-black/5 hover:bg-black/10 transition-colors px-4 py-2 rounded-full text-sm font-bold text-[#552c24]"
         >
-          <HelpCircle size={15} />
+          <HelpCircle size={18} />
           사용법
         </button>
       </div>
