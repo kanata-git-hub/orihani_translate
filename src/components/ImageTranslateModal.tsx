@@ -33,7 +33,7 @@ const FontAdjustableText = ({ text, box, onClick }: { text: string, box: number[
   const charsPerLine = Math.sqrt(1.25 * aspectRatio * Math.max(1, targetLen));
   
   // 3. 도출된 '줄당 글자수(C)'를 100cqw에 분배하여 정확한 최적의 폰트 사이즈 cqw 도출 (약간 축소)
-  const optimalCqw = (100 / Math.max(1, charsPerLine)) * 0.92;
+  const optimalCqw = (100 / Math.max(1, charsPerLine)) * 0.9;
 
   // 4. 표시할 텍스트가 차지하게 될 실제 줄(Line) 수를 역산하여 유연하게 클램핑
   const optimalLines = Math.ceil(targetLen / Math.max(1, charsPerLine));
