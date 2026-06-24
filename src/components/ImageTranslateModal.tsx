@@ -78,7 +78,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [selectedBlock, setSelectedBlock] = useState<TextBlock | null>(null);
   const [isSaving, setIsSaving] = useState(false);
-  const [viewMode, setViewMode] = useState<'image' | 'text'>('image');
+  const [viewMode, setViewMode] = useState<'original' | 'image' | 'text'>('image');
   const [copiedIndex, setCopiedIndex] = useState<number | 'all' | null>(null);
   
   const containerRef = useRef<HTMLDivElement>(null);
@@ -358,6 +358,12 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                 {!loading && blocks.length > 0 && (
                   <div className="flex bg-gray-100/80 rounded-lg p-0.5 flex-shrink-0">
                     <button 
+                      onClick={() => setViewMode('original')}
+                      className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${viewMode === 'original' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      원본
+                    </button>
+                    <button 
                       onClick={() => setViewMode('image')}
                       className={`px-3 py-1 rounded-md text-xs font-semibold transition-all ${viewMode === 'image' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-700'}`}
                     >
@@ -417,7 +423,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
             </div>
           )}
 
-          {imageSrc && viewMode === 'image' && (
+          {imageSrc && (viewMode === 'image' || viewMode === 'original') && (
             <div className="relative flex justify-center items-center w-full h-full p-2 md:p-6 min-h-0">
               <div 
                 ref={exportRef}
@@ -430,7 +436,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                   style={{ width: 'auto', height: 'auto' }}
                 />
                 
-                {blocks.length > 0 && (
+                {blocks.length > 0 && viewMode === 'image' && (
                   <div className="absolute inset-0">
                     {blocks.map((block, idx) => {
                       const [ymin, xmin, ymax, xmax] = block.box;

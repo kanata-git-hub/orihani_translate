@@ -91,7 +91,7 @@ export const UserPanel: React.FC<UserPanelProps> = ({
           {inputTypeUser === 'text' ? (
             <div className="flex flex-col gap-4 w-full h-full justify-center">
               {userText && (
-                <p className="text-xl opacity-50 mb-2 truncate shrink-0">{userText}</p>
+                <p className="text-xl opacity-50 mb-2 break-words shrink-0">{userText}</p>
               )}
               <div className="relative w-full z-20 flex-1 flex">
                 <textarea

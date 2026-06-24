@@ -104,7 +104,7 @@ export const ForeignerPanel: React.FC<ForeignerPanelProps> = ({
           {inputTypeForeigner === 'text' ? (
             <div className="flex flex-col gap-4 w-full h-full justify-center">
               {foreignerText && (
-                <p className="text-xl opacity-50 mb-2 truncate shrink-0">{foreignerText}</p>
+                <p className="text-xl opacity-50 mb-2 break-words shrink-0">{foreignerText}</p>
               )}
               <div className="relative w-full z-20 flex-1 flex">
                 <textarea
