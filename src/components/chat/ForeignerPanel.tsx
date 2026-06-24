@@ -141,7 +141,7 @@ export const ForeignerPanel: React.FC<ForeignerPanelProps> = ({
               </button>
             </div>
           ) : (
-            <p className="text-2xl sm:text-3xl leading-tight text-white/50 font-normal">
+            <p className="text-2xl sm:text-3xl leading-tight text-white/50 font-normal whitespace-pre-line">
               {activeMic === 'foreigner' ? foreignLoc.listening : processingRole === 'foreigner' ? foreignLoc.translating : foreignLoc.idle}
             </p>
           )}

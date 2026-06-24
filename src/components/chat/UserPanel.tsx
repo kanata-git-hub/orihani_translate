@@ -128,7 +128,7 @@ export const UserPanel: React.FC<UserPanelProps> = ({
               </button>
             </div>
           ) : (
-            <p className="text-2xl sm:text-3xl leading-tight text-[#552c24]/50 font-normal">
+            <p className="text-2xl sm:text-3xl leading-tight text-[#552c24]/50 font-normal whitespace-pre-line">
               {activeMic === 'user' ? userLoc.listening : processingRole === 'user' ? userLoc.translating : userLoc.idle}
             </p>
           )}
