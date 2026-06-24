@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, startTransition } from 'react';
 import { X, Loader2, Download, Copy, Check } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { toJpeg } from 'html-to-image';
+import html2canvas from 'html2canvas';
 
 interface TextBlock {
   original: string;
@@ -102,11 +102,14 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
       // 화질을 높게 유지하기 위해 pixelRatio를 최소 2 이상으로 설정합니다.
       const pixelRatio = Math.max(2, window.devicePixelRatio || 1);
       
-      const dataUrl = await toJpeg(exportRef.current, {
-        pixelRatio: pixelRatio,
+      const canvas = await html2canvas(exportRef.current, {
+        scale: pixelRatio,
         backgroundColor: '#ffffff',
-        quality: 0.95
+        useCORS: true,
+        allowTaint: true,
       });
+      
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
       
       const link = document.createElement('a');
       link.download = `translated_${Date.now()}.jpg`;
