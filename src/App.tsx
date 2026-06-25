@@ -6,11 +6,13 @@ import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute';
 import HomePage from './pages/HomePage';
 import MainApp from './pages/MainApp';
 import AdminDashboard from './pages/AdminDashboard'; // To be created
+import PWAInstallPrompt from './components/PWAInstallPrompt';
 
 export default function App() {
   return (
     <AuthProvider>
       <BrowserRouter>
+        <PWAInstallPrompt />
         <Routes>
           <Route path="/" element={<HomePage />} />
           

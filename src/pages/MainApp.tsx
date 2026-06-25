@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { Mic, Square, Languages, Volume2, VolumeX, Loader2, LogOut, Shield, HelpCircle, X, Pencil, Send, RotateCcw, Camera } from 'lucide-react';
 import { playAudioChunk, resetAudioQueue, setHoldPlayback } from '../audio';
 import { useLocalStorage } from '../hooks/useLocalStorage';
