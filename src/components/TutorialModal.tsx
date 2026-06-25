@@ -103,22 +103,11 @@ export function TutorialModal({ onClose, isFirstVisit = false }: TutorialModalPr
         </div>
       ),
       content: (
-        <div className="text-[13px] space-y-3 mt-1">
-          <div>
-            <h4 className="font-bold text-[#552c24] mb-1">내가 말할 때 <span className="text-[11px] font-normal opacity-70">(한국어 ▶ 외국어)</span></h4>
-            <ul className="list-disc pl-4 text-zinc-700 space-y-1">
-              <li>언어를 선택하고, 아래쪽 마이크<IconBadge icon={Mic} /> 터치</li>
-              <li>말이 끝나면 정지<IconBadge icon={Square} isStop /> 터치 👉 즉시 번역 및 읽어줌</li>
-            </ul>
-          </div>
-          <div>
-            <h4 className="font-bold text-[#552c24] mb-1">상대방이 말할 때 <span className="text-[11px] font-normal opacity-70">(외국어 ▶ 한국어)</span></h4>
-            <ul className="list-disc pl-4 text-zinc-700 space-y-1">
-              <li>위쪽 마이크<IconBadge icon={Mic} isForeigner /> 터치</li>
-              <li>상대방 말이 끝나면 정지<IconBadge icon={Square} isStop /> 터치 👉 즉시 번역 및 읽어줌</li>
-            </ul>
-          </div>
-        </div>
+        <ul className="text-[16px] space-y-4 mt-2 text-zinc-700 list-disc pl-5">
+          <li><strong>마이크</strong><IconBadge icon={Mic} isNeutral /> 터치</li>
+          <li>말이 끝나면 <strong>정지</strong><IconBadge icon={Square} isStop /> 터치</li>
+          <li>즉시 <strong>번역</strong>하고 자동으로 <strong>읽어줍니다</strong></li>
+        </ul>
       )
     },
     {
@@ -176,22 +165,11 @@ export function TutorialModal({ onClose, isFirstVisit = false }: TutorialModalPr
         </div>
       ),
       content: (
-        <div className="text-[13px] space-y-3 mt-1">
-          <div>
-            <h4 className="font-bold text-[#552c24] mb-1">내가 입력할 때 <span className="text-[11px] font-normal opacity-70">(한국어 ▶ 외국어)</span></h4>
-            <ul className="list-disc pl-4 text-zinc-700 space-y-1">
-              <li>아래쪽 입력창에 한국어 입력</li>
-              <li>전송<IconBadge icon={Send} isSend /> 터치 👉 즉시 번역 및 읽어줌</li>
-            </ul>
-          </div>
-          <div>
-            <h4 className="font-bold text-[#552c24] mb-1">상대방이 입력할 때 <span className="text-[11px] font-normal opacity-70">(외국어 ▶ 한국어)</span></h4>
-            <ul className="list-disc pl-4 text-zinc-700 space-y-1">
-              <li>위쪽 입력창에 외국어 입력</li>
-              <li>전송<IconBadge icon={Send} isSend isForeigner /> 터치 👉 즉시 번역 및 읽어줌</li>
-            </ul>
-          </div>
-        </div>
+        <ul className="text-[16px] space-y-4 mt-2 text-zinc-700 list-disc pl-5">
+          <li><strong>연필</strong><IconBadge icon={Pencil} isNeutral /> 터치</li>
+          <li>문자를 입력하고 <strong>전송</strong><IconBadge icon={Send} isSend isNeutral /> 터치</li>
+          <li>즉시 <strong>번역</strong>하고 자동으로 <strong>읽어줍니다</strong></li>
+        </ul>
       )
     },
     {
@@ -249,22 +227,11 @@ export function TutorialModal({ onClose, isFirstVisit = false }: TutorialModalPr
         </div>
       ),
       content: (
-        <div className="text-[13px] space-y-3 mt-1">
-          <div>
-            <h4 className="font-bold text-[#552c24] mb-1">외국어 이미지를 ▶ 한국어로</h4>
-            <ul className="list-disc pl-4 text-zinc-700 space-y-1">
-              <li>위쪽 카메라<IconBadge icon={Camera} isForeigner />로 번역할 이미지 선택</li>
-              <li>결과 확인 후 팝업창에서 저장<IconBadge icon={Download} isNeutral /> 터치</li>
-            </ul>
-          </div>
-          <div>
-            <h4 className="font-bold text-[#552c24] mb-1">한국어 이미지를 ▶ 외국어로</h4>
-            <ul className="list-disc pl-4 text-zinc-700 space-y-1">
-              <li>아래쪽 카메라<IconBadge icon={Camera} />로 번역할 이미지 선택</li>
-              <li>결과 확인 후 팝업창에서 저장<IconBadge icon={Download} isNeutral /> 터치</li>
-            </ul>
-          </div>
-        </div>
+        <ul className="text-[16px] space-y-4 mt-2 text-zinc-700 list-disc pl-5">
+          <li><strong>카메라</strong><IconBadge icon={Camera} isNeutral /> 터치</li>
+          <li>카메라 촬영 혹은 사진 선택</li>
+          <li>즉시 번역하고 <strong>저장</strong><IconBadge icon={Download} isNeutral />도 가능</li>
+        </ul>
       )
     },
     {
@@ -303,22 +270,14 @@ export function TutorialModal({ onClose, isFirstVisit = false }: TutorialModalPr
         </div>
       ),
       content: (
-        <div className="text-[13px] space-y-3">
-          <div className="bg-zinc-50 border border-zinc-100 rounded-lg p-2.5">
-             <h4 className="font-bold text-[#552c24] mb-1.5">상단 영역</h4>
-             <ul className="space-y-2 text-zinc-700 leading-tight">
-                <li className="flex items-start"><IconBadge icon={Languages} isNeutral /> <span><strong>언어 선택:</strong> 좌측 상단에서 번역할 외국어 선택</span></li>
-                <li className="flex items-start"><IconBadge icon={RotateCcw} isNeutral /> <span><strong>초기화:</strong> 대화 내용을 모두 지우기</span></li>
-                <li className="flex items-start"><IconBadge icon={Volume2} isNeutral /> <span><strong>사운드(TTS):</strong> 번역 결과를 소리로 들을지 켬/끔</span></li>
-             </ul>
-          </div>
-          <div className="bg-zinc-50 border border-zinc-100 rounded-lg p-2.5">
-             <h4 className="font-bold text-[#552c24] mb-1.5">하단 영역</h4>
-             <ul className="space-y-2 text-zinc-700 leading-tight">
-                <li className="flex items-start"><IconBadge icon={Download} isNeutral /> <span><strong>화면 캡처:</strong> 현재까지의 대화 화면을 이미지로 저장</span></li>
-                <li className="flex items-start"><IconBadge icon={HelpCircle} isNeutral /> <span><strong>사용법:</strong> 지금 보고 있는 설명서를 다시 확인</span></li>
-             </ul>
-          </div>
+        <div className="text-[16px] mt-1 px-2">
+          <ul className="space-y-4 text-zinc-700">
+            <li className="flex items-center"><IconBadge icon={Languages} isNeutral /> <span><strong>언어선택:</strong> 번역할 외국어 선택</span></li>
+            <li className="flex items-center"><IconBadge icon={RotateCcw} isNeutral /> <span><strong>초기화:</strong> 대화 내용 모두 지우기</span></li>
+            <li className="flex items-center"><IconBadge icon={Volume2} isNeutral /> <span><strong>사운드:</strong> 소리를 들을지 켬/끔</span></li>
+            <li className="flex items-center"><IconBadge icon={Download} isNeutral /> <span><strong>화면 캡처:</strong> 현재 화면을 이미지로 저장</span></li>
+            <li className="flex items-center"><IconBadge icon={HelpCircle} isNeutral /> <span><strong>사용법:</strong> 설명서를 다시 확인</span></li>
+          </ul>
         </div>
       )
     }
