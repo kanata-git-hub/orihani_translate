@@ -5,7 +5,7 @@ import { useLocalStorage } from '../hooks/useLocalStorage';
 import { logout } from '../lib/firebaseUtils';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
-import { HelpModal } from '../components/HelpModal';
+import { TutorialModal } from '../components/TutorialModal';
 import { LOCALIZATION } from '../constants/localization';
 import { ImageTranslateModal } from '../components/ImageTranslateModal';
 import { renderPronunciation } from '../utils/textUtils';
@@ -65,12 +65,21 @@ export default function App() {
 
   const [playingTTS, setPlayingTTS] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [isFirstVisit, setIsFirstVisit] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imageTargetLang, setImageTargetLang] = useState<string>('Korean');
   const imageInputForeignerRef = useRef<HTMLInputElement>(null);
   const imageInputUserRef = useRef<HTMLInputElement>(null);
   const [processingRole, setProcessingRole] = useState<'foreigner' | 'user' | null>(null);
+
+  useEffect(() => {
+    const isDismissed = localStorage.getItem('tutorialDismissed');
+    if (isDismissed !== 'true') {
+      setIsFirstVisit(true);
+      setShowHelp(true);
+    }
+  }, []);
 
   const wsRef = useRef<WebSocket | null>(null);
   const recognitionRef = useRef<any>(null);
@@ -522,7 +531,7 @@ export default function App() {
     const file = e.target.files?.[0];
     if (file) {
       if (activeMic) stopRecording();
-      setImageTargetLang(role === 'foreigner' ? foreignerLang : 'Korean');
+      setImageTargetLang(role === 'foreigner' ? 'Korean' : foreignerLang);
       setImageFile(file);
       setShowImageModal(true);
     }
@@ -652,7 +661,7 @@ export default function App() {
       />
 
       {/* Help Modal */}
-      {showHelp && <HelpModal onClose={() => setShowHelp(false)} />}
+      {showHelp && <TutorialModal onClose={() => { setShowHelp(false); setIsFirstVisit(false); }} isFirstVisit={isFirstVisit} />}
 
       <ImageTranslateModal 
         isOpen={showImageModal} 

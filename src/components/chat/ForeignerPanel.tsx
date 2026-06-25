@@ -149,7 +149,12 @@ export const ForeignerPanel: React.FC<ForeignerPanelProps> = ({
       </div>
 
       <div className="sticky bottom-8 left-0 right-0 flex justify-center z-10 h-0 overflow-visible pointer-events-none">
-        <div className="flex items-center gap-1 bg-black/30 border border-white/10 backdrop-blur-md rounded-[60px] px-2 py-6 shadow-2xl pointer-events-auto">
+        <div className="flex items-center gap-1 bg-black/30 border border-white/10 backdrop-blur-md rounded-[60px] pl-4 pr-2 py-6 shadow-2xl pointer-events-auto">
+          <div className="flex items-center pr-3 mr-1 border-r border-white/10">
+            <span className="text-[#e74c3c] font-bold text-[16px]">외국어</span>
+            <span className="text-white/30 text-[10px] mx-1.5">▶</span>
+            <span className="text-[#3498db] font-bold text-[16px]">한국어</span>
+          </div>
           <button
             onClick={() => {
               if (inputTypeForeigner === 'mic') toggleForeignerMic();

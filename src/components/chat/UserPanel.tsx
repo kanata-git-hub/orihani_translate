@@ -34,14 +34,19 @@ export const UserPanel: React.FC<UserPanelProps> = ({
 }) => {
   return (
     <div className="flex-1 shrink-0 relative bg-white text-[#552c24] flex flex-col p-8 pt-24">
-      <div className="absolute top-6 left-8 z-10">
+      <div className="absolute top-6 left-8 z-10 flex flex-col gap-1.5">
         <span className="font-bold text-[13px] opacity-50 tracking-wide flex items-center gap-1.5">
           {userLoc.title}
         </span>
       </div>
 
       <div className="sticky top-8 left-0 right-0 flex justify-center z-10 h-0 overflow-visible pointer-events-none">
-        <div className="flex items-center gap-1 bg-white/90 border border-black/10 backdrop-blur-md rounded-[60px] px-2 py-6 shadow-2xl pointer-events-auto -translate-y-full">
+        <div className="flex items-center gap-1 bg-white/90 border border-black/10 backdrop-blur-md rounded-[60px] pl-4 pr-2 py-6 shadow-2xl pointer-events-auto -translate-y-full">
+          <div className="flex items-center pr-3 mr-1 border-r border-black/10">
+            <span className="text-[#3498db] font-bold text-[16px]">한국어</span>
+            <span className="text-black/20 text-[10px] mx-1.5">▶</span>
+            <span className="text-[#e74c3c] font-bold text-[16px]">외국어</span>
+          </div>
           <button
             onClick={() => {
               if (inputTypeUser === 'mic') toggleUserMic();
