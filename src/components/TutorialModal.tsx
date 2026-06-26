@@ -100,14 +100,14 @@ const TextVisual = () => (
 
 const ImageVisual = () => (
   <div className="flex flex-col h-full rounded-lg overflow-hidden border border-black/10 shadow-sm relative w-full max-w-[280px] mx-auto bg-zinc-100 text-[12px]">
-    <div className="absolute inset-0 flex flex-col opacity-50 z-0">
+    <div className="absolute inset-0 flex flex-col z-0">
       <div className="flex-1 bg-[#552c24]" />
       <div className="h-1 w-full bg-[#ffcd4a] shrink-0" />
       <div className="flex-1 bg-white" />
     </div>
 
     {/* Base Panel */}
-    <motion.div animate={{ opacity: [1, 1, 0, 0, 1, 1] }} transition={{ duration: 20, repeat: Infinity, times: [0, 0.25, 0.27, 0.85, 0.87, 1] }} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 scale-[0.9] w-max">
+    <motion.div animate={{ opacity: [1, 1, 0, 0, 1, 1] }} transition={{ duration: 30, repeat: Infinity, times: [0, 0.15, 0.17, 0.85, 0.87, 1] }} className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-10 scale-[0.9] w-max">
       <div className="flex items-center gap-2 bg-white/90 border border-black/10 backdrop-blur-md rounded-full pl-5 pr-4 py-2 shadow-sm whitespace-nowrap">
         <div className="flex items-center pr-3 mr-1 border-r border-black/10 shrink-0">
           <span className="text-[#e74c3c] font-bold text-[13px]">외국어</span>
@@ -116,16 +116,35 @@ const ImageVisual = () => (
         </div>
         <div className="w-8 h-8 rounded-full text-[#552c24]/50 flex items-center justify-center shrink-0"><Mic size={14} /></div>
         <div className="w-8 h-8 rounded-full text-[#552c24]/50 flex items-center justify-center shrink-0"><Pencil size={14} /></div>
-        <motion.div animate={{ scale: [1, 1, 0.8, 0.8, 1, 1], backgroundColor: ["#552c24", "#552c24", "#ffcd4a", "#ffcd4a", "#552c24", "#552c24"], color: ["#ffffff", "#ffffff", "#552c24", "#552c24", "#ffffff", "#ffffff"] }} transition={{ duration: 20, repeat: Infinity, times: [0, 0.07, 0.09, 0.25, 0.27, 1] }} className="w-8 h-8 rounded-full bg-[#552c24] text-white flex items-center justify-center shrink-0"><Camera size={14} /></motion.div>
+        <motion.div animate={{ scale: [1, 1, 0.8, 0.8, 1, 1], backgroundColor: ["#552c24", "#552c24", "#ffcd4a", "#ffcd4a", "#552c24", "#552c24"], color: ["#ffffff", "#ffffff", "#552c24", "#552c24", "#ffffff", "#ffffff"] }} transition={{ duration: 30, repeat: Infinity, times: [0, 0.07, 0.09, 0.15, 0.17, 1] }} className="w-8 h-8 rounded-full bg-[#552c24] text-white flex items-center justify-center shrink-0"><Camera size={14} /></motion.div>
       </div>
     </motion.div>
 
+    {/* Image Gallery Selection Popup */}
+    <motion.div animate={{ y: ['100%', '100%', '0%', '0%', '100%', '100%'], opacity: [0, 0, 1, 1, 0, 0] }} transition={{ duration: 30, repeat: Infinity, times: [0, 0.15, 0.17, 0.35, 0.37, 1] }} className="absolute bottom-0 left-0 right-0 bg-white rounded-t-xl shadow-[0_-10px_40px_rgba(0,0,0,0.1)] z-15 flex flex-col border border-black/10 overflow-hidden h-[85%]">
+       <div className="flex justify-center items-center px-3 py-3 border-b border-black/5 bg-zinc-50">
+         <div className="text-zinc-800 font-bold text-[13px]">사진 선택</div>
+       </div>
+       <div className="p-3 grid grid-cols-3 gap-2 bg-white flex-1 content-start">
+         <div className="aspect-square bg-zinc-100 rounded-md border border-black/5"></div>
+         <motion.div animate={{ scale: [1, 1, 0.9, 0.9, 1, 1], opacity: [1, 1, 0.8, 0.8, 1, 1], outline: ["none", "none", "2px solid #ffcd4a", "2px solid #ffcd4a", "none", "none"] }} transition={{ duration: 30, repeat: Infinity, times: [0, 0.22, 0.25, 0.35, 0.37, 1] }} className="aspect-square bg-gradient-to-b from-blue-100 to-green-100 rounded-md flex flex-col justify-center items-center border border-black/5 relative overflow-hidden">
+             <div className="bg-white/80 px-1 py-0.5 rounded shadow-sm z-10 text-center flex flex-col items-center justify-center w-3/4">
+               <span className="text-zinc-800 font-bold text-[8px] leading-tight">WELCOME</span>
+             </div>
+         </motion.div>
+         <div className="aspect-square bg-zinc-100 rounded-md border border-black/5"></div>
+         <div className="aspect-square bg-zinc-100 rounded-md border border-black/5"></div>
+         <div className="aspect-square bg-zinc-100 rounded-md border border-black/5"></div>
+         <div className="aspect-square bg-zinc-100 rounded-md border border-black/5"></div>
+       </div>
+    </motion.div>
+
     {/* Image Translation Popup */}
-    <motion.div animate={{ y: ['100%', '100%', '0%', '0%', '100%', '100%'], opacity: [0, 0, 1, 1, 0, 0] }} transition={{ duration: 20, repeat: Infinity, times: [0, 0.25, 0.27, 0.85, 0.87, 1] }} className="absolute inset-0 m-2 bg-white rounded-xl shadow-2xl z-20 flex flex-col border border-black/10 overflow-hidden">
+    <motion.div animate={{ y: ['100%', '100%', '0%', '0%', '100%', '100%'], opacity: [0, 0, 1, 1, 0, 0] }} transition={{ duration: 30, repeat: Infinity, times: [0, 0.35, 0.37, 0.85, 0.87, 1] }} className="absolute inset-0 m-2 bg-white rounded-xl shadow-2xl z-20 flex flex-col border border-black/10 overflow-hidden">
       <div className="flex justify-between items-center px-3 py-2 border-b border-black/5 bg-zinc-50">
         <div className="w-[14px]"></div>
         <div className="text-[#552c24] font-bold text-[12px]">이미지 번역</div>
-        <motion.div animate={{ scale: [1, 1, 1.2, 1, 1], color: ['#a1a1aa', '#a1a1aa', '#552c24', '#a1a1aa', '#a1a1aa'] }} transition={{ duration: 20, repeat: Infinity, times: [0, 0.75, 0.78, 0.8, 1] }}>
+        <motion.div animate={{ scale: [1, 1, 1.2, 1, 1], color: ['#a1a1aa', '#a1a1aa', '#552c24', '#a1a1aa', '#a1a1aa'] }} transition={{ duration: 30, repeat: Infinity, times: [0, 0.75, 0.78, 0.8, 1] }}>
           <Download size={16} />
         </motion.div>
       </div>
@@ -140,9 +159,14 @@ const ImageVisual = () => (
            </div>
            
            {/* Overlay overlay translated image elements */}
-           <motion.div animate={{ opacity: [0, 0, 1, 1, 0, 0] }} transition={{ duration: 20, repeat: Infinity, times: [0, 0.65, 0.67, 0.85, 0.87, 1] }} className="absolute inset-2 bg-white/95 rounded-md shadow-xl flex flex-col items-center justify-center border border-black/10 py-3 backdrop-blur-sm z-20">
-             <div className="font-bold text-[16px] text-zinc-800 mb-1">환영합니다</div>
-             <div className="text-[11px] text-zinc-600 text-center px-4 leading-tight">국립공원</div>
+           <motion.div animate={{ opacity: [0, 0, 1, 1, 0, 0] }} transition={{ duration: 30, repeat: Infinity, times: [0, 0.55, 0.57, 0.85, 0.87, 1] }} className="absolute inset-0 flex flex-col items-center justify-center pt-4 z-20 pointer-events-none">
+             <div className="h-[48px] mb-2" />
+             <div className="w-max px-3 h-8 bg-zinc-50 rounded-md flex items-center justify-center border border-black/10 shadow-sm mb-1">
+               <span className="font-bold text-[16px] text-[#552c24]">환영합니다</span>
+             </div>
+             <div className="w-max px-2 h-4 bg-zinc-50 rounded-sm flex items-center justify-center border border-black/10 shadow-sm">
+               <span className="text-[10px] text-[#552c24] leading-none mt-0.5">국립공원</span>
+             </div>
            </motion.div>
          </div>
       </div>
