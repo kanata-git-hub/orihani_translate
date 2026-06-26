@@ -1,6 +1,6 @@
 {
-  "name": "실시간 통역 앱",
-  "short_name": "통역앱",
+  "name": "오원장톡: 실시간 통역",
+  "short_name": "오원장톡",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",
