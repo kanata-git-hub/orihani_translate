@@ -289,7 +289,8 @@ TASK 2: CONTEXT ANALYSIS
 Extract relevant data for any of the fields below that are applicable to the image (you are highly encouraged to extract multiple fields if they apply):
   - "amount": If a price, receipt, menu, or cost is visible, extract the main numeric amount (number).
   - "currency": Standard 3-letter currency code (e.g., "JPY", "USD", "KRW", "EUR") matching the amount.
-  - "search_keyword": If any specific location, place, landmark (e.g., "麻布台ヒルズ"), tourist attraction, brand, product, or proper noun is identified, extract the exact name/noun in its original native language (do not translate to English) optimized for search engines.
+  - "location_keyword": If and only if a specific physical location, landmark (e.g., "麻布台ヒルズ"), restaurant/store name, station name, or tourist attraction is clearly identified, extract the exact name/noun in its original native language (do not translate to English) optimized for Google Maps. Do not extract generic descriptors or general text. Leave null if no specific physical location is identified.
+  - "search_keyword": If any specific brand, product, food/dish name, proper noun, or main subject is identified (other than a physical map location), extract the exact name in its original native language (do not translate to English) optimized for search engines. Leave null if there is no specific product or proper noun.
   - "summary": 
     - If "long_text": provide a structured 3-line summary in ${targetLang}.
     - If "general_info" (or if describing food, objects, animals, landmarks, or the scene): provide a short 1-2 sentence description or identification of the main subject in ${targetLang}.
@@ -303,6 +304,7 @@ Return a strict JSON object with this exact structure:
   "extracted_data": {
     "amount": number | null,
     "currency": "string | null",
+    "location_keyword": "string | null",
     "search_keyword": "string | null",
     "summary": "string | null"
   }

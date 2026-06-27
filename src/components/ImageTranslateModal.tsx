@@ -12,6 +12,7 @@ interface TextBlock {
 interface ExtractedData {
   amount?: number | null;
   currency?: string | null;
+  location_keyword?: string | null;
   search_keyword?: string | null;
   summary?: string | null;
 }
@@ -382,13 +383,16 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
       );
     }
 
-    if (extractedData?.search_keyword) {
+    if (extractedData?.location_keyword) {
       chips.push(
-        <a key="map" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(extractedData.search_keyword)}`} target="_blank" rel="noreferrer" className={baseClass}>
+        <a key="map" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(extractedData.location_keyword)}`} target="_blank" rel="noreferrer" className={baseClass}>
           <Map size={18} className="text-green-500" />
           <span className="bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">지도 검색</span>
         </a>
       );
+    }
+
+    if (extractedData?.search_keyword) {
       chips.push(
         <a key="search" href={`https://www.google.com/search?q=${encodeURIComponent(extractedData.search_keyword)}`} target="_blank" rel="noreferrer" className={baseClass}>
           <Search size={18} className="text-purple-500" />
