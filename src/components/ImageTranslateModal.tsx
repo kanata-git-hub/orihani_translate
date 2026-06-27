@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, startTransition } from 'react';
-import { X, Loader2, Download, Copy, Check, Calculator, Map, Search, AlignLeft, Info } from 'lucide-react';
+import { X, Loader2, Download, Copy, Check, Calculator, Map, Search, AlignLeft, Info, Lightbulb } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { domToJpeg } from 'modern-screenshot';
 
@@ -398,12 +398,21 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
     }
 
     if (extractedData?.summary) {
-      chips.push(
-        <button key="summary" onClick={() => setShowSummaryModal(true)} className={baseClass}>
-          <Info size={18} className="text-teal-500" />
-          <span className="bg-gradient-to-r from-teal-600 to-cyan-600 bg-clip-text text-transparent">사진 정보</span>
-        </button>
-      );
+      if (category === 'long_text') {
+        chips.push(
+          <button key="summary" onClick={() => setShowSummaryModal(true)} className={baseClass}>
+            <AlignLeft size={18} className="text-orange-500" />
+            <span className="bg-gradient-to-r from-orange-600 to-amber-600 bg-clip-text text-transparent">3줄 요약</span>
+          </button>
+        );
+      } else {
+        chips.push(
+          <button key="summary" onClick={() => setShowSummaryModal(true)} className={baseClass}>
+            <Lightbulb size={18} className="text-amber-500" />
+            <span className="bg-gradient-to-r from-amber-500 to-orange-500 bg-clip-text text-transparent">이게 뭐야?</span>
+          </button>
+        );
+      }
     }
 
     if (chips.length === 0) return null;
@@ -684,10 +693,17 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
               className="absolute inset-x-4 top-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl p-6 z-50 border border-black/10"
             >
               <div className="flex justify-between items-center mb-4">
-                <div className="flex items-center gap-2 text-teal-600">
-                  <Info size={20} />
-                  <h3 className="font-bold text-lg">사진 정보 및 요약</h3>
-                </div>
+                {category === 'long_text' ? (
+                  <div className="flex items-center gap-2 text-orange-600">
+                    <AlignLeft size={20} />
+                    <h3 className="font-bold text-lg">3줄 요약</h3>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 text-amber-500">
+                    <Lightbulb size={20} />
+                    <h3 className="font-bold text-lg">이게 뭐야? (사진 정보)</h3>
+                  </div>
+                )}
                 <button onClick={() => setShowSummaryModal(false)} className="p-1 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500">
                   <X size={16} />
                 </button>

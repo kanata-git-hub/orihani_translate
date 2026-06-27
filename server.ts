@@ -286,11 +286,13 @@ TASK 2: CONTEXT ANALYSIS
    - "general_info" (Food, landmarks, objects, animals, or images with no text)
    - "none" (If it doesn't fit well)
    
-Extract relevant data based on the category:
-  - If "price": extract the main \`amount\` (number) and \`currency\` (standard 3-letter currency code, e.g., "JPY", "USD", "KRW", "EUR").
-  - If "location" or "product": extract the proper noun in its original native language as \`search_keyword\` (do not translate to English) optimized for Google Maps or Google Search.
-  - If "long_text": provide a 3-line summary in ${targetLang} as \`summary\`.
-  - If "general_info": provide a short 1-2 sentence description or identification of the main subject in ${targetLang} as \`summary\`. ALSO, if a specific location, landmark, or product can be identified, provide the proper noun in its original native language as \`search_keyword\`.
+Extract relevant data for any of the fields below that are applicable to the image (you are highly encouraged to extract multiple fields if they apply):
+  - "amount": If a price, receipt, menu, or cost is visible, extract the main numeric amount (number).
+  - "currency": Standard 3-letter currency code (e.g., "JPY", "USD", "KRW", "EUR") matching the amount.
+  - "search_keyword": If any specific location, place, landmark (e.g., "麻布台ヒルズ"), tourist attraction, brand, product, or proper noun is identified, extract the exact name/noun in its original native language (do not translate to English) optimized for search engines.
+  - "summary": 
+    - If "long_text": provide a structured 3-line summary in ${targetLang}.
+    - If "general_info" (or if describing food, objects, animals, landmarks, or the scene): provide a short 1-2 sentence description or identification of the main subject in ${targetLang}.
 
 Return a strict JSON object with this exact structure:
 {
