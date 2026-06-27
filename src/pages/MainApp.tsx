@@ -451,7 +451,18 @@ export default function App() {
     analyserRef.current = null;
     setAudioLevels(new Array(15).fill(10));
     
+    initOutCtx();
     if (outCtxRef.current) {
+       // iOS Web Audio API unlock trick: play a short silent buffer under direct user gesture
+       try {
+         const buffer = outCtxRef.current.createBuffer(1, 1, 22050);
+         const source = outCtxRef.current.createBufferSource();
+         source.buffer = buffer;
+         source.connect(outCtxRef.current.destination);
+         source.start(0);
+       } catch (e) {
+         console.warn("Failed to play silent buffer for iOS unlock", e);
+       }
        setHoldPlayback(false, outCtxRef.current);
     }
     
