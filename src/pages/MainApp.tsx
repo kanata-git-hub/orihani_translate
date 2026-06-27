@@ -83,6 +83,15 @@ export default function App() {
 
   const wsRef = useRef<WebSocket | null>(null);
   const recognitionRef = useRef<any>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const visualizerIntervalRef = useRef<any>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+
+  const [audioLevels, setAudioLevels] = useState<number[]>(new Array(15).fill(10));
+
   const sessionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const didRestartRef = useRef<boolean>(false);
@@ -121,15 +130,6 @@ export default function App() {
   const lastSpeakerRef = useRef<string | null>(null);
   const lastStopTimeRef = useRef<number>(0);
   const activeTurnContextRef = useRef<string>('');
-
-  const resetSilenceTimer = () => {
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-    }
-    silenceTimerRef.current = setTimeout(() => {
-      stopRecording();
-    }, 10000);
-  };
 
   const handleReset = () => {
     if (activeMic) stopRecording();
@@ -178,6 +178,15 @@ export default function App() {
           if (msg.error) {
             console.error("Live API Error:", msg.error);
             stopRecording();
+            setProcessingRole(null);
+            if (msg.error === "NO_SPEECH_DETECTED") {
+              if (msg.role === "foreigner") {
+                const guide = foreignerLang === "ja" ? "⚠️ 音声が検出されませんでした。もう一度お話しください。" : foreignerLang === "zh" ? "⚠️ 未检测到语音。请再试一次。" : foreignerLang === "es" ? "⚠️ No se detectó voz. Por favor, inténtelo de nuevo." : "⚠️ No speech detected. Please try again.";
+                setForeignerText(guide);
+              } else {
+                setUserText("⚠️ 음성이 감지되지 않았습니다. 조금 더 크고 명확하게 말씀해주세요.");
+              }
+            }
             return;
           }
           if (msg.audio) {
@@ -197,13 +206,17 @@ export default function App() {
           const currentMic = msg.role || activeMicRef.current;
           
           if (msg.partial) {
+             if (msg.inputTranscription) {
+                if (currentMic === 'foreigner') foreignerPendingRef.current = msg.inputTranscription;
+                else userPendingRef.current = msg.inputTranscription;
+             }
              if (msg.outputTranscription) {
-               if (currentMic === 'foreigner') userPendingRef.current = msg.outputTranscription;
-               else foreignerPendingRef.current = msg.outputTranscription;
+                if (currentMic === 'foreigner') userPendingRef.current = msg.outputTranscription;
+                else foreignerPendingRef.current = msg.outputTranscription;
              }
              if (msg.outputPronunciation) {
-               if (currentMic === 'foreigner') userPronunciationPendingRef.current = msg.outputPronunciation;
-               else foreignerPronunciationPendingRef.current = msg.outputPronunciation;
+                if (currentMic === 'foreigner') userPronunciationPendingRef.current = msg.outputPronunciation;
+                else foreignerPronunciationPendingRef.current = msg.outputPronunciation;
              }
           } else if (msg.turnComplete) {
              // turn is done, move pending to complete
@@ -333,120 +346,75 @@ export default function App() {
     if (sessionTimeoutRef.current) {
       clearTimeout(sessionTimeoutRef.current);
     }
-    // 5분 자동 종료 타임아웃
     sessionTimeoutRef.current = setTimeout(() => {
       stopRecording();
     }, 5 * 60 * 1000);
     
-    resetSilenceTimer();
-    
     try {
       await getEnsureWs();
 
-      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (!SpeechRecognition) {
-        alert("현재 브라우저에서 음성 인식 API를 지원하지 않습니다.");
-        setActiveMic(null);
-        return;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      streamRef.current = stream;
+
+      const options = { mimeType: 'audio/webm' };
+      let mediaRecorder: MediaRecorder;
+      try {
+        mediaRecorder = new MediaRecorder(stream, options);
+      } catch (e) {
+        mediaRecorder = new MediaRecorder(stream);
       }
 
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
 
-      const recognition = new SpeechRecognition();
-      recognition.continuous = false;
-      recognition.interimResults = true;
-      
-      // Map standard ISO code to BCP-47 for foreignerLang
-      let recLang = 'ko-KR';
-      if (role === 'foreigner') {
-        const langMap: Record<string, string> = { "ja": "ja-JP", "en": "en-US", "es": "es-ES", "zh": "zh-CN" };
-        recLang = langMap[foreignerLang] || foreignerLang;
-      }
-      recognition.lang = recLang;
-
-      recognition.onresult = (event: any) => {
-        resetSilenceTimer();
-        
-        if (didRestartRef.current) {
-          if (event.results.length === 1 || event.results.length < lastProcessedIndex.current) {
-               // Browser clearly cleared the results list (Desktop Chrome behavior)
-               lastProcessedIndex.current = 0;
-          }
-          // The flag is now consumed
-          didRestartRef.current = false;
-        }
-        
-        let newFinals = '';
-        let unfinalized = '';
-        
-        for (let i = lastProcessedIndex.current; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            newFinals += event.results[i][0].transcript + ' ';
-            lastProcessedIndex.current = i + 1;
-          } else {
-            unfinalized += event.results[i][0].transcript;
-          }
-        }
-        
-        unfinalizedBufferRef.current = unfinalized;
-
-        if (role === 'foreigner') {
-          setLocalUnfinalizedForeigner(unfinalized);
-        } else {
-          setLocalUnfinalizedUser(unfinalized);
-        }
-
-        if (newFinals.trim()) {
-           setProcessingRole(role);
-           
-           if (role === 'foreigner') {
-              foreignerCompleteRef.current += (foreignerCompleteRef.current ? ' ' : '') + newFinals.trim();
-              setForeignerText((foreignerCompleteRef.current + " " + foreignerPendingRef.current).trim());
-           } else {
-              userCompleteRef.current += (userCompleteRef.current ? ' ' : '') + newFinals.trim();
-              setUserText((userCompleteRef.current + " " + userPendingRef.current).trim());
-           }
-
-           const currentComplete = role === 'foreigner' ? foreignerCompleteRef.current : userCompleteRef.current;
-           const opponentComplete = activeTurnContextRef.current;
-           getEnsureWs().then(ws => {
-              ws.send(JSON.stringify({ 
-               type: 'process_text',
-               role: role,
-               text: newFinals.trim(),
-               previousText: currentComplete.trim(),
-               opponentText: opponentComplete.trim(),
-               targetLanguageCode: role === 'foreigner' ? 'Korean' : foreignerLang,
-               ttsEnabled: ttsEnabledRef.current
-             }));
-           }).catch(console.error);
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
         }
       };
 
-      recognition.onerror = (event: any) => {
-        console.error("Speech recognition error", event.error);
-        if (event.error === 'not-allowed') {
-           alert('마이크 접근이 거부되었습니다. 브라우저의 마이크 권한을 허용해주세요.');
-           setActiveMic(null);
-        }
+      mediaRecorder.onstop = async () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType || 'audio/webm' });
+        const reader = new FileReader();
+        reader.readAsDataURL(audioBlob);
+        reader.onloadend = () => {
+          const base64Data = (reader.result as string).split(',')[1];
+          sendAudioToBackend(role, base64Data, mediaRecorder.mimeType || 'audio/webm');
+        };
       };
 
-      recognition.onend = () => {
-        if (activeMicRef.current === role) {
-          try {
-            didRestartRef.current = true;
-            recognition.start();
-          } catch (e) {}
-        }
-      };
+      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const audioContext = new AudioContextClass();
+      audioContextRef.current = audioContext;
 
-      recognition.start();
-      recognitionRef.current = recognition;
+      const source = audioContext.createMediaStreamSource(stream);
+      const analyser = audioContext.createAnalyser();
+      analyser.fftSize = 64;
+      analyserRef.current = analyser;
+      source.connect(analyser);
+
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+
+      visualizerIntervalRef.current = setInterval(() => {
+        if (!analyserRef.current) return;
+        analyserRef.current.getByteFrequencyData(dataArray);
+        
+        const newLevels = [];
+        const step = Math.floor(bufferLength / 15) || 1;
+        for (let i = 0; i < 15; i++) {
+          const val = dataArray[i * step] || 0;
+          const percentage = Math.max(8, Math.min(100, (val / 255) * 100 * 1.5));
+          newLevels.push(percentage);
+        }
+        setAudioLevels(newLevels);
+      }, 80);
+
+      mediaRecorder.start();
+
     } catch (err) {
-        console.error('Failed to access microphone', err);
-        setActiveMic(null);
+      console.error('Failed to access microphone or start recording', err);
+      setActiveMic(null);
     }
   };
 
@@ -461,46 +429,28 @@ export default function App() {
       clearTimeout(silenceTimerRef.current);
       silenceTimerRef.current = null;
     }
-    
-    const capturedUnfinalized = unfinalizedBufferRef.current.trim();
-    const roleToProcess = activeMicRef.current;
-    const currentLang = foreignerLang;
 
-    if (recognitionRef.current) {
-      // Detach immediately to prevent double processing if the browser fires a final onresult during stop()
-      recognitionRef.current.onresult = null;
-      recognitionRef.current.stop();
-      recognitionRef.current = null;
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+
+    if (visualizerIntervalRef.current) {
+      clearInterval(visualizerIntervalRef.current);
+      visualizerIntervalRef.current = null;
     }
     
-    // Immediately process any pending text
-    if (roleToProcess && capturedUnfinalized.trim()) {
-      setProcessingRole(roleToProcess);
-      
-      if (roleToProcess === 'foreigner') {
-         foreignerCompleteRef.current += (foreignerCompleteRef.current ? ' ' : '') + capturedUnfinalized.trim();
-         setForeignerText((foreignerCompleteRef.current + " " + foreignerPendingRef.current).trim());
-      } else {
-         userCompleteRef.current += (userCompleteRef.current ? ' ' : '') + capturedUnfinalized.trim();
-         setUserText((userCompleteRef.current + " " + userPendingRef.current).trim());
-      }
-
-      const currentComplete = roleToProcess === 'foreigner' ? foreignerCompleteRef.current : userCompleteRef.current;
-      const opponentComplete = activeTurnContextRef.current;
-      getEnsureWs().then(ws => {
-          ws.send(JSON.stringify({ 
-          type: 'process_text',
-          role: roleToProcess,
-          text: capturedUnfinalized,
-          previousText: currentComplete.trim(),
-          opponentText: opponentComplete.trim(),
-          targetLanguageCode: roleToProcess === 'foreigner' ? 'Korean' : currentLang,
-          ttsEnabled: ttsEnabledRef.current
-        }));
-      }).catch(console.error);
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(console.error);
+      audioContextRef.current = null;
     }
+    analyserRef.current = null;
+    setAudioLevels(new Array(15).fill(10));
     
-    // Release playback hold
     if (outCtxRef.current) {
        setHoldPlayback(false, outCtxRef.current);
     }
@@ -509,6 +459,35 @@ export default function App() {
     setLocalUnfinalizedForeigner('');
     setLocalUnfinalizedUser('');
     unfinalizedBufferRef.current = '';
+  };
+
+  const sendAudioToBackend = (role: 'foreigner' | 'user', base64Audio: string, mimeType: string) => {
+    setProcessingRole(role);
+    lastSpeakerRef.current = role;
+
+    if (role === 'foreigner') {
+      setForeignerText('');
+      setForeignerPronunciation('');
+    } else {
+      setUserText('');
+      setUserPronunciation('');
+    }
+
+    const currentComplete = role === 'foreigner' ? foreignerCompleteRef.current : userCompleteRef.current;
+    const opponentComplete = activeTurnContextRef.current;
+
+    getEnsureWs().then(ws => {
+      ws.send(JSON.stringify({ 
+        type: 'process_audio',
+        role: role,
+        audio: base64Audio,
+        mimeType: mimeType,
+        previousText: currentComplete.trim(),
+        opponentText: opponentComplete.trim(),
+        targetLanguageCode: role === 'foreigner' ? 'Korean' : foreignerLang,
+        ttsEnabled: ttsEnabledRef.current
+      }));
+    }).catch(console.error);
   };
 
   const toggleForeignerMic = () => {
@@ -633,6 +612,7 @@ export default function App() {
         processingRole={processingRole}
         imageInputForeignerRef={imageInputForeignerRef}
         handleImageChange={handleImageChange}
+        audioLevels={audioLevels}
       />
 
       {/* Divider */}
@@ -658,6 +638,7 @@ export default function App() {
         setShowHelp={setShowHelp}
         handleCaptureAndDownload={handleCaptureAndDownload}
         isCapturing={isCapturing}
+        audioLevels={audioLevels}
       />
 
       {/* Help Modal */}

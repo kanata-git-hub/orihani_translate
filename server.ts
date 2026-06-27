@@ -65,7 +65,185 @@ async function startServer() {
       const state = sessions.get(clientWs) || { processPromise: Promise.resolve() };
       sessions.set(clientWs, state);
 
-      if (msg.type === "process_text") {
+      if (msg.type === "process_audio") {
+        state.processPromise = state.processPromise.then(async () => {
+          if (state?.session) {
+            state.session = null;
+          }
+          
+          const codeMap: Record<string, string> = {
+            "ko": "Korean",
+            "en": "English",
+            "ja": "Japanese",
+            "es": "Spanish",
+            "zh": "Chinese"
+          };
+          const rawTarget = msg.targetLanguageCode || "Korean";
+          const targetLang = codeMap[rawTarget.toLowerCase()] || rawTarget;
+          const role = msg.role;
+          const ttsEnabled = msg.ttsEnabled !== false;
+
+          try {
+            const ai = getAi();
+            
+            let systemPrompt = `You are an expert conversational translator that analyzes input audio directly. 
+Translate the spoken content in the audio to ${targetLang} in a casually polite tone.
+
+CRITICAL PROCESSING RULES FOR NOISE AND SILENCE:
+- First, carefully evaluate if there is any actual human speech in the audio.
+- If there is ONLY noise, silence, wind sound, breath sound, or if the speech is extremely faint/muffled such that it cannot be formed into any coherent words or phrases, you MUST output EXACTLY: "NO_SPEECH_DETECTED||||||"
+- Do NOT try to translate or transcribe meaningless noise, ambient sounds, throat clearing, or short fragments of accidental whispers.
+
+OUTPUT FORMAT REQUIREMENTS:
+Output exactly three parts separated by "|||".
+Format:
+[Original Speech Transcription]|||[Casual Polite Translation in ${targetLang}]|||[Pronunciation Guide]
+
+Pronunciation Guide Rules:
+1. If the target language is NOT Korean, write the pronunciation guide in Korean Hangul so a Korean speaker can read it aloud.
+   - English / Spanish: Apply stress and liaison (연음). Bold the stressed syllables using markdown bold (**text**). Write exactly as it sounds connected. (e.g., "What are you doing?" -> **와**라유 **두**잉?)
+   - Chinese: Add tonal arrows (→, ↗, ↘↗, ↘) after the Hangul to indicate pitch. (e.g., "你好 (Nǐ hǎo)" -> 니↘↗ 하오↘↗)
+   - Japanese: Clearly mark long vowels with a dash (-) or tilde (~). (e.g., "ありがとう (Arigatou)" -> 아리가**토**-)
+2. If the target language IS Korean, provide the pronunciation guide in the native alphabet of the original speaker's language (e.g., Romaji for Japanese speakers, Pinyin for Chinese speakers, Romanized for English).
+   - If pronunciation is not needed at all, leave it empty after the second "|||".
+
+Output purely this single-line format and nothing else.`;
+
+            if (msg.opponentText || msg.previousText) {
+               systemPrompt += `\n\n--- CONVERSATION CONTEXT ---`;
+               if (msg.opponentText) systemPrompt += `\nThe other person recently said: "${msg.opponentText}"`;
+               if (msg.previousText) systemPrompt += `\nThe speaker previously said: "${msg.previousText}"`;
+               systemPrompt += `\n----------------------------\nEnsure the translation flows naturally as a realistic dialogue response based on this context.`;
+            }
+
+            const responseStream = await fetchWithBackoff(() => ai.models.generateContentStream({
+              model: "gemini-3.5-flash",
+              config: {
+                systemInstruction: systemPrompt
+              },
+              contents: [
+                {
+                  role: "user",
+                  parts: [
+                    {
+                      inlineData: {
+                        mimeType: msg.mimeType || "audio/webm",
+                        data: msg.audio
+                      }
+                    }
+                  ]
+                }
+              ]
+            }));
+
+            let bufferStr = "";
+            let lastTranslLength = 0;
+            let unprocessedTranslationBuffer = "";
+            let ttsPromise = Promise.resolve();
+
+            const queueTts = (textToSpeak: string) => {
+              if (!ttsEnabled) return;
+              ttsPromise = ttsPromise.then(async () => {
+                try {
+                  const ttsStream = await fetchWithBackoff(() => ai.models.generateContentStream({
+                    model: "gemini-3.1-flash-tts-preview",
+                    contents: [{ parts: [{ text: textToSpeak }] }],
+                    config: {
+                      responseModalities: ["AUDIO"],
+                      speechConfig: {
+                        voiceConfig: {
+                          prebuiltVoiceConfig: { voiceName: role === 'foreigner' ? "Puck" : "Kore" },
+                        },
+                      },
+                    },
+                  }));
+                  for await (const chunk of ttsStream) {
+                    const base64Audio = chunk.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+                    if (base64Audio) {
+                      clientWs.send(JSON.stringify({ role, audio: base64Audio }));
+                    }
+                  }
+                } catch (e: any) {
+                  console.error("TTS Gen Error:", e);
+                }
+              });
+            };
+
+            let detectedNoSpeech = false;
+
+            for await (const chunk of responseStream) {
+              bufferStr += chunk.text;
+              
+              if (bufferStr.includes("NO_SPEECH_DETECTED")) {
+                detectedNoSpeech = true;
+                break;
+              }
+
+              const splitParts = bufferStr.split("|||");
+              let currTrans = splitParts[0] || "";
+              let currTransl = splitParts.length > 1 ? splitParts[1] : "";
+              let currPronunciation = splitParts.length > 2 ? splitParts[2] : "";
+
+              const newlyTranslated = currTransl.slice(lastTranslLength);
+              lastTranslLength = currTransl.length;
+
+              if (newlyTranslated) {
+                unprocessedTranslationBuffer += newlyTranslated;
+                const boundaryRegex = /([.?!。！？]+)(?:\s+|\n+)/;
+                while (true) {
+                  const match = boundaryRegex.exec(unprocessedTranslationBuffer);
+                  if (match) {
+                    const splitIndex = match.index + match[1].length;
+                    const sentence = unprocessedTranslationBuffer.slice(0, splitIndex).trim();
+                    unprocessedTranslationBuffer = unprocessedTranslationBuffer.slice(splitIndex).trimStart();
+                    if (sentence) {
+                      queueTts(sentence);
+                    }
+                  } else {
+                    break;
+                  }
+                }
+              }
+
+              clientWs.send(JSON.stringify({
+                role,
+                inputTranscription: currTrans.trim(),
+                outputTranscription: currTransl.trim(),
+                outputPronunciation: currPronunciation.trim(),
+                partial: true
+              }));
+            }
+
+            if (detectedNoSpeech) {
+              clientWs.send(JSON.stringify({
+                error: "NO_SPEECH_DETECTED",
+                role,
+                turnComplete: true
+              }));
+              return;
+            }
+
+            if (unprocessedTranslationBuffer.trim() && ttsEnabled) {
+              queueTts(unprocessedTranslationBuffer.trim());
+            }
+
+            await ttsPromise;
+            
+            const splitFinal = bufferStr.split("|||");
+            clientWs.send(JSON.stringify({
+              role,
+              inputTranscription: (splitFinal[0] || "").trim(),
+              outputTranscription: (splitFinal.length > 1 ? splitFinal[1] : "").trim(),
+              outputPronunciation: (splitFinal.length > 2 ? splitFinal[2] : "").trim(),
+              turnComplete: true
+            }));
+
+          } catch (e: any) {
+            console.error("Audio pipeline Error:", e);
+            clientWs.send(JSON.stringify({ error: e.message, role, turnComplete: true }));
+          }
+        }).catch(e => console.error("Process Audio Promise Error", e));
+      } else if (msg.type === "process_text") {
         state.processPromise = state.processPromise.then(async () => {
           if (state?.session) {
             state.session = null;

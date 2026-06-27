@@ -1,6 +1,7 @@
 import React from 'react';
 import { Mic, Square, Volume2, Loader2, Pencil, Send, Camera, HelpCircle, Download } from 'lucide-react';
 import { renderPronunciation } from '../../utils/textUtils';
+import { AudioVisualizer } from './AudioVisualizer';
 
 interface UserPanelProps {
   userLoc: any;
@@ -22,6 +23,7 @@ interface UserPanelProps {
   setShowHelp: (show: boolean) => void;
   handleCaptureAndDownload: () => void;
   isCapturing: boolean;
+  audioLevels?: number[];
 }
 
 export const UserPanel: React.FC<UserPanelProps> = ({
@@ -30,7 +32,7 @@ export const UserPanel: React.FC<UserPanelProps> = ({
   textInputUser, setTextInputUser, handleSendText,
   playingTTS, playTTS, processingRole,
   imageInputUserRef, handleImageChange, setShowHelp,
-  handleCaptureAndDownload, isCapturing
+  handleCaptureAndDownload, isCapturing, audioLevels
 }) => {
   return (
     <div className="flex-1 shrink-0 relative bg-white text-[#552c24] flex flex-col p-8 pt-24">
@@ -114,6 +116,11 @@ export const UserPanel: React.FC<UserPanelProps> = ({
                 </button>
               </div>
             </div>
+          ) : activeMic === 'user' ? (
+            <div className="flex flex-col items-center justify-center py-4 w-full">
+              <AudioVisualizer levels={audioLevels || []} color="#552c24" />
+              <p className="text-xl text-[#552c24]/70 mt-4 animate-pulse font-medium">{userLoc.listening}</p>
+            </div>
           ) : userText || localUnfinalizedUser ? (
             <div className="group relative pr-12">
               <p className="text-2xl sm:text-3xl leading-tight font-medium break-words text-[#552c24]">
@@ -133,9 +140,18 @@ export const UserPanel: React.FC<UserPanelProps> = ({
               </button>
             </div>
           ) : (
-            <p className="text-2xl sm:text-3xl leading-tight text-[#552c24]/50 font-normal whitespace-pre-line">
-              {activeMic === 'user' ? userLoc.listening : processingRole === 'user' ? userLoc.translating : userLoc.idle}
-            </p>
+            <div className="flex flex-col justify-center">
+              {processingRole === 'user' ? (
+                <div className="flex items-center gap-3 text-2xl sm:text-3xl text-[#552c24]/70 font-medium">
+                  <Loader2 size={24} className="animate-spin text-[#ffcd4a]" />
+                  <span>{userLoc.translating}</span>
+                </div>
+              ) : (
+                <p className="text-2xl sm:text-3xl leading-tight text-[#552c24]/50 font-normal whitespace-pre-line">
+                  {userLoc.idle}
+                </p>
+              )}
+            </div>
           )}
         </div>
       </div>

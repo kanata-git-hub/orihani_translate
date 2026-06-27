@@ -1,6 +1,7 @@
 import React from 'react';
 import { Mic, Square, Languages, Volume2, Loader2, LogOut, Shield, Pencil, Send, RotateCcw, Camera, VolumeX } from 'lucide-react';
 import { renderPronunciation } from '../../utils/textUtils';
+import { AudioVisualizer } from './AudioVisualizer';
 
 interface ForeignerPanelProps {
   foreignLoc: any;
@@ -27,6 +28,7 @@ interface ForeignerPanelProps {
   processingRole: 'foreigner' | 'user' | null;
   imageInputForeignerRef: React.RefObject<HTMLInputElement>;
   handleImageChange: (e: React.ChangeEvent<HTMLInputElement>, role: 'foreigner') => void;
+  audioLevels?: number[];
 }
 
 export const ForeignerPanel: React.FC<ForeignerPanelProps> = ({
@@ -37,7 +39,7 @@ export const ForeignerPanel: React.FC<ForeignerPanelProps> = ({
   foreignerText, localUnfinalizedForeigner, foreignerPronunciation,
   textInputForeigner, setTextInputForeigner, handleSendText,
   playingTTS, playTTS, processingRole,
-  imageInputForeignerRef, handleImageChange
+  imageInputForeignerRef, handleImageChange, audioLevels
 }) => {
   return (
     <div className="flex-1 shrink-0 relative bg-[#552c24] text-white flex flex-col p-8 pb-24">
@@ -122,6 +124,11 @@ export const ForeignerPanel: React.FC<ForeignerPanelProps> = ({
                 </button>
               </div>
             </div>
+          ) : activeMic === 'foreigner' ? (
+            <div className="flex flex-col items-center justify-center py-4 w-full">
+              <AudioVisualizer levels={audioLevels || []} color="#ffcd4a" />
+              <p className="text-xl text-white/80 mt-4 animate-pulse font-medium">{foreignLoc.listening}</p>
+            </div>
           ) : foreignerText || localUnfinalizedForeigner ? (
             <div className="group relative pr-12">
               <p className="text-2xl sm:text-3xl leading-tight font-medium break-words text-white">
@@ -141,9 +148,18 @@ export const ForeignerPanel: React.FC<ForeignerPanelProps> = ({
               </button>
             </div>
           ) : (
-            <p className="text-2xl sm:text-3xl leading-tight text-white/50 font-normal whitespace-pre-line">
-              {activeMic === 'foreigner' ? foreignLoc.listening : processingRole === 'foreigner' ? foreignLoc.translating : foreignLoc.idle}
-            </p>
+            <div className="flex flex-col justify-center">
+              {processingRole === 'foreigner' ? (
+                <div className="flex items-center gap-3 text-2xl sm:text-3xl text-white/70 font-medium">
+                  <Loader2 size={24} className="animate-spin text-[#ffcd4a]" />
+                  <span>{foreignLoc.translating}</span>
+                </div>
+              ) : (
+                <p className="text-2xl sm:text-3xl leading-tight text-white/50 font-normal whitespace-pre-line">
+                  {foreignLoc.idle}
+                </p>
+              )}
+            </div>
           )}
         </div>
       </div>
