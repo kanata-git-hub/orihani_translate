@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect, useLayoutEffect, startTransition } from 'react';
-import { X, Loader2, Download, Copy, Check } from 'lucide-react';
+import { X, Loader2, Download, Copy, Check, Calculator, Map, Search, AlignLeft, Info } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { domToJpeg } from 'modern-screenshot';
 
@@ -7,6 +7,13 @@ interface TextBlock {
   original: string;
   translation: string;
   box: [number, number, number, number]; // ymin, xmin, ymax, xmax (0-1000)
+}
+
+interface ExtractedData {
+  amount?: number | null;
+  currency?: string | null;
+  search_keyword?: string | null;
+  summary?: string | null;
 }
 
 interface ImageTranslateModalProps {
@@ -94,8 +101,12 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [blocks, setBlocks] = useState<TextBlock[]>([]);
+  const [category, setCategory] = useState<string | null>(null);
+  const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
   const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [selectedBlock, setSelectedBlock] = useState<TextBlock | null>(null);
+  const [showSummaryModal, setShowSummaryModal] = useState(false);
+  const [showCalcModal, setShowCalcModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [viewMode, setViewMode] = useState<'original' | 'image' | 'text'>('image');
   const [copiedIndex, setCopiedIndex] = useState<number | 'all' | null>(null);
@@ -144,9 +155,13 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
       // Allow exit animations to complete before thoroughly purging states
       const timer = setTimeout(() => {
         setBlocks([]);
+        setCategory(null);
+        setExtractedData(null);
         setImageSrc(null);
         setError('');
         setSelectedBlock(null);
+        setShowSummaryModal(false);
+        setShowCalcModal(false);
         setLoading(true);
       }, 400);
       return () => clearTimeout(timer);
@@ -329,6 +344,8 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
         // 박스들을 DOM에 먼저 주입하되, loading 상태는 유지합니다.
         startTransition(() => {
           setBlocks(data.blocks || []);
+          setCategory(data.category || null);
+          setExtractedData(data.extracted_data || null);
         });
         
         // 박스들이 Reflow 되면서 브라우저가 버벅거릴 수 있으므로 300ms 후에 loading을 풀어줍니다.
@@ -336,7 +353,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
         
       } catch (err: any) {
         if (!isMounted) return;
-        setError(err.message || 'Error processing image');
+        setError('이미지를 인식하지 못했습니다. 다시 시도해주세요.');
       } finally {
         if (isMounted) setLoading(false);
       }
@@ -348,6 +365,55 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
       isMounted = false;
     };
   }, [isOpen, file, targetLang]);
+
+  const renderSmartChips = () => {
+    if (loading || !extractedData) return null;
+
+    const baseClass = "flex items-center gap-2 px-4 py-2.5 bg-white/95 backdrop-blur-md rounded-full shadow-[0_4px_15px_rgba(0,0,0,0.1)] border border-white/60 text-sm font-bold text-gray-800 hover:scale-105 active:scale-95 transition-all whitespace-nowrap flex-shrink-0";
+    const chips = [];
+
+    const curr = extractedData?.currency?.toUpperCase();
+    if (extractedData?.amount != null && curr && curr !== 'KRW' && curr !== '원' && curr !== '₩') {
+      chips.push(
+        <button key="price" onClick={() => setShowCalcModal(true)} className={baseClass}>
+          <Calculator size={18} className="text-blue-500" />
+          <span className="bg-gradient-to-r from-blue-600 to-indigo-600 bg-clip-text text-transparent">예상 환율</span>
+        </button>
+      );
+    }
+
+    if (extractedData?.search_keyword) {
+      chips.push(
+        <a key="map" href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(extractedData.search_keyword)}`} target="_blank" rel="noreferrer" className={baseClass}>
+          <Map size={18} className="text-green-500" />
+          <span className="bg-gradient-to-r from-green-600 to-emerald-600 bg-clip-text text-transparent">지도 검색</span>
+        </a>
+      );
+      chips.push(
+        <a key="search" href={`https://www.google.com/search?q=${encodeURIComponent(extractedData.search_keyword)}`} target="_blank" rel="noreferrer" className={baseClass}>
+          <Search size={18} className="text-purple-500" />
+          <span className="bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">웹 검색</span>
+        </a>
+      );
+    }
+
+    if (extractedData?.summary) {
+      chips.push(
+        <button key="summary" onClick={() => setShowSummaryModal(true)} className={baseClass}>
+          <Info size={18} className="text-teal-500" />
+          <span className="bg-gradient-to-r from-teal-600 to-cyan-600 bg-clip-text text-transparent">사진 정보</span>
+        </button>
+      );
+    }
+
+    if (chips.length === 0) return null;
+
+    return (
+      <div className="flex gap-2 overflow-x-auto pb-4 px-4 w-full justify-start md:justify-center [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+        {chips}
+      </div>
+    );
+  };
 
   return (
     <AnimatePresence>
@@ -545,6 +611,22 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
           )}
         </div>
         
+        {/* Smart Chip Floating Action */}
+        <AnimatePresence>
+          {!loading && !selectedBlock && viewMode === 'image' && category && category !== 'none' && (
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              className="absolute bottom-6 left-0 right-0 flex justify-center z-30 pointer-events-none"
+            >
+              <div className="pointer-events-auto">
+                {renderSmartChips()}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Bottom Details Panel */}
         <AnimatePresence>
           {selectedBlock && viewMode === 'image' && (
@@ -574,6 +656,94 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                   <p className="text-xs font-semibold text-black/30 mb-1">원문</p>
                   <p className="text-sm text-gray-500 break-words">{selectedBlock.original}</p>
                 </div>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Smart Chip Modals Overlay */}
+        <AnimatePresence>
+           {(showSummaryModal || showCalcModal) && (
+             <motion.div
+               initial={{ opacity: 0 }}
+               animate={{ opacity: 1 }}
+               exit={{ opacity: 0 }}
+               className="absolute inset-0 bg-black/40 backdrop-blur-sm z-40"
+               onClick={() => { setShowSummaryModal(false); setShowCalcModal(false); }}
+             />
+           )}
+        </AnimatePresence>
+
+        {/* Smart Chip Modals */}
+        <AnimatePresence>
+          {showSummaryModal && extractedData?.summary && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="absolute inset-x-4 top-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl p-6 z-50 border border-black/10"
+            >
+              <div className="flex justify-between items-center mb-4">
+                <div className="flex items-center gap-2 text-teal-600">
+                  <Info size={20} />
+                  <h3 className="font-bold text-lg">사진 정보 및 요약</h3>
+                </div>
+                <button onClick={() => setShowSummaryModal(false)} className="p-1 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500">
+                  <X size={16} />
+                </button>
+              </div>
+              <div className="space-y-3 text-gray-700 leading-relaxed text-[15px]">
+                {extractedData.summary.split('\n').map((line, i) => (
+                  <p key={i} className="break-keep">{line.replace(/^[-*•]\s*/, '• ')}</p>
+                ))}
+              </div>
+            </motion.div>
+          )}
+
+          {showCalcModal && extractedData?.amount != null && extractedData?.currency && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="absolute inset-x-4 top-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-2xl p-6 z-50 border border-black/10"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <div className="flex items-center gap-2 text-blue-600">
+                  <Calculator size={20} />
+                  <h3 className="font-bold text-lg">예상 환율</h3>
+                </div>
+                <button onClick={() => setShowCalcModal(false)} className="p-1 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-500">
+                  <X size={16} />
+                </button>
+              </div>
+              
+              <div className="flex flex-col gap-4">
+                <div className="flex justify-between items-end border-b border-gray-100 pb-3">
+                  <span className="text-gray-500 font-medium">현지 가격</span>
+                  <span className="text-2xl font-bold text-gray-900">{extractedData.amount.toLocaleString()} <span className="text-base text-gray-500 ml-1">{extractedData.currency}</span></span>
+                </div>
+                <div className="flex justify-between items-end pb-2">
+                  <span className="text-gray-500 font-medium">원화 예상가</span>
+                  <span className="text-3xl font-black text-blue-600">
+                    {(() => {
+                      const amount = extractedData.amount || 0;
+                      const curr = extractedData.currency?.toUpperCase();
+                      let krw = 0;
+                      if (curr === 'KRW' || curr === '원' || curr === '₩') krw = amount;
+                      else if (curr === 'JPY' || curr === '엔' || curr === '¥') krw = amount * 9.0;
+                      else if (curr === 'USD' || curr === '$') krw = amount * 1350;
+                      else if (curr === 'EUR' || curr === '€') krw = amount * 1450;
+                      else if (curr === 'CNY' || curr === '위안' || curr === '¥') krw = amount * 190;
+                      else if (curr === 'TWD' || curr === '대만 달러') krw = amount * 42;
+                      else krw = amount * 1000;
+                      return Math.round(krw).toLocaleString();
+                    })()}
+                    <span className="text-xl text-blue-400 ml-1.5 font-bold">원</span>
+                  </span>
+                </div>
+                <p className="text-xs text-gray-400 text-center mt-2 bg-gray-50 p-2 rounded-lg">
+                  * 실시간 환율이 아닌 대략적인 참고용입니다.
+                </p>
               </div>
             </motion.div>
           )}

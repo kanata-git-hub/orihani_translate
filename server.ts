@@ -270,7 +270,41 @@ Output purely the translation and the pronunciation separated by "|||". Do NOT i
       const { imageParams, targetLang } = req.body; 
       const ai = getAi();
       
-      const systemPrompt = `You are an OCR and translation expert. First, group the text found in the image into logical paragraph blocks (do NOT split by individual words or single lines unless they stand alone). Then, translate each paragraph block to ${targetLang}. For each paragraph block, provide the \`[ymin, xmin, ymax, xmax]\` coordinates normalized from 0 to 1000 representing the bounding box encompassing the entire paragraph in the original image. Return a strict JSON array of objects with keys: \`original\` (string), \`translation\` (string), \`box\` (array of 4 numbers).`;
+      const systemPrompt = `You are an OCR and translation expert. Analyze the image and perform two tasks:
+
+TASK 1: EXHAUSTIVE OCR & TRANSLATION (CRITICAL)
+- Group ALL text found in the image into logical paragraph blocks (do NOT split by individual words or single lines unless they stand alone).
+- You MUST extract and translate EVERY single piece of text visible in the image to ${targetLang}. Do not skip any text, no matter how small or dense.
+- For each paragraph block, provide the \`[ymin, xmin, ymax, xmax]\` coordinates normalized from 0 to 1000 representing the bounding box encompassing the entire paragraph in the original image.
+
+TASK 2: CONTEXT ANALYSIS
+- Classify the overall image into one of these categories:
+   - "price" (Menu, Receipt, Price tag, Discount notice)
+   - "location" (Signboard, Tourist sign, Station name, Map)
+   - "product" (Product packaging, cosmetics, medicine, brand)
+   - "long_text" (Museum explanation, manual, long notice)
+   - "general_info" (Food, landmarks, objects, animals, or images with no text)
+   - "none" (If it doesn't fit well)
+   
+Extract relevant data based on the category:
+  - If "price": extract the main \`amount\` (number) and \`currency\` (standard 3-letter currency code, e.g., "JPY", "USD", "KRW", "EUR").
+  - If "location" or "product": extract the proper noun in its original native language as \`search_keyword\` (do not translate to English) optimized for Google Maps or Google Search.
+  - If "long_text": provide a 3-line summary in ${targetLang} as \`summary\`.
+  - If "general_info": provide a short 1-2 sentence description or identification of the main subject in ${targetLang} as \`summary\`. ALSO, if a specific location, landmark, or product can be identified, provide the proper noun in its original native language as \`search_keyword\`.
+
+Return a strict JSON object with this exact structure:
+{
+  "blocks": [
+    { "original": "string", "translation": "string", "box": [number, number, number, number] }
+  ],
+  "category": "string",
+  "extracted_data": {
+    "amount": number | null,
+    "currency": "string | null",
+    "search_keyword": "string | null",
+    "summary": "string | null"
+  }
+}`;
 
       const response = await fetchWithBackoff(() => ai.models.generateContent({
         model: "gemini-3.5-flash",
@@ -290,7 +324,8 @@ Output purely the translation and the pronunciation separated by "|||". Do NOT i
 
       if (response?.text) {
           const parsed = JSON.parse(response.text);
-          return res.json({ blocks: parsed });
+          // ensure the root is returned, not just blocks
+          return res.json(parsed);
       }
       res.status(500).json({ error: "Failed to process image" });
     } catch(e: any) {
