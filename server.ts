@@ -107,13 +107,18 @@ CRITICAL TRANSLATION RULES:
 
 CRITICAL PROCESSING RULES FOR NOISE AND SILENCE:
 - First, carefully evaluate if there is any actual human speech in the audio.
-- If there is ONLY noise, silence, wind sound, breath sound, or if the speech is extremely faint/muffled such that it cannot be formed into any coherent words or phrases, you MUST output EXACTLY: "NO_SPEECH_DETECTED||||||"
+- If there is ONLY noise, silence, wind sound, breath sound, or if the speech is extremely faint/muffled such that it cannot be formed into any coherent words or phrases, you MUST set the "status" field to "NO_SPEECH_DETECTED".
 - Do NOT try to translate or transcribe meaningless noise, ambient sounds, throat clearing, or short fragments of accidental whispers.
 
 OUTPUT FORMAT REQUIREMENTS:
-Output exactly three parts separated by "|||".
+Output a valid JSON object and nothing else.
 Format:
-[Original Speech Transcription in ${sourceLang}]|||[Casual Polite Translation in ${targetLang}]|||[Pronunciation Guide]
+{
+  "status": "SUCCESS" or "NO_SPEECH_DETECTED",
+  "transcription": "[Original Speech Transcription in ${sourceLang}]",
+  "translation": "[Casual Polite Translation in ${targetLang}]",
+  "pronunciation": "[Pronunciation Guide]"
+}
 
 Pronunciation Guide Rules:
 1. If the target language is NOT Korean, write the pronunciation guide in Korean Hangul so a Korean speaker can read it aloud.
@@ -121,9 +126,8 @@ Pronunciation Guide Rules:
    - Chinese: Add tonal arrows (→, ↗, ↘↗, ↘) after the Hangul to indicate pitch. (e.g., "你好 (Nǐ hǎo)" -> 니↘↗ 하오↘↗)
    - Japanese: Clearly mark long vowels with a dash (-) or tilde (~). (e.g., "ありがとう (Arigatou)" -> 아리가**토**-)
 2. If the target language IS Korean, provide the pronunciation guide in the native alphabet of the original speaker's language (e.g., Romaji for Japanese speakers, Pinyin for Chinese speakers, Romanized for English).
-   - If pronunciation is not needed at all, leave it empty after the second "|||".
-
-Output purely this single-line format and nothing else.`;
+   - If pronunciation is not needed at all, leave it empty.
+`;
 
             if (msg.opponentText || msg.previousText) {
                systemPrompt += `\n\n--- CONVERSATION CONTEXT ---`;
@@ -135,7 +139,8 @@ Output purely this single-line format and nothing else.`;
             const responseStream = await fetchWithBackoff(() => ai.models.generateContentStream({
               model: "gemini-3.5-flash",
               config: {
-                systemInstruction: systemPrompt
+                systemInstruction: systemPrompt,
+                responseMimeType: "application/json"
               },
               contents: [
                 {
@@ -190,15 +195,23 @@ Output purely this single-line format and nothing else.`;
             for await (const chunk of responseStream) {
               bufferStr += chunk.text;
               
-              if (bufferStr.includes("NO_SPEECH_DETECTED")) {
+              if (bufferStr.includes('"NO_SPEECH_DETECTED"')) {
                 detectedNoSpeech = true;
                 break;
               }
 
-              const splitParts = bufferStr.split("|||");
-              let currTrans = splitParts[0] || "";
-              let currTransl = splitParts.length > 1 ? splitParts[1] : "";
-              let currPronunciation = splitParts.length > 2 ? splitParts[2] : "";
+              let currTrans = "";
+              let currTransl = "";
+              let currPronunciation = "";
+
+              const transMatch = bufferStr.match(/"transcription"\s*:\s*"((?:[^"\\]|\\.)*)/);
+              if (transMatch) currTrans = transMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
+
+              const translMatch = bufferStr.match(/"translation"\s*:\s*"((?:[^"\\]|\\.)*)/);
+              if (translMatch) currTransl = translMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
+
+              const pronunMatch = bufferStr.match(/"pronunciation"\s*:\s*"((?:[^"\\]|\\.)*)/);
+              if (pronunMatch) currPronunciation = pronunMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
 
               const newlyTranslated = currTransl.slice(lastTranslLength);
               lastTranslLength = currTransl.length;
@@ -245,12 +258,28 @@ Output purely this single-line format and nothing else.`;
 
             await ttsPromise;
             
-            const splitFinal = bufferStr.split("|||");
+            let finalTrans = "";
+            let finalTransl = "";
+            let finalPronun = "";
+            try {
+              const parsed = JSON.parse(bufferStr);
+              finalTrans = parsed.transcription || "";
+              finalTransl = parsed.translation || "";
+              finalPronun = parsed.pronunciation || "";
+            } catch(e) {
+              const transMatch = bufferStr.match(/"transcription"\s*:\s*"((?:[^"\\]|\\.)*)/);
+              if (transMatch) finalTrans = transMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
+              const translMatch = bufferStr.match(/"translation"\s*:\s*"((?:[^"\\]|\\.)*)/);
+              if (translMatch) finalTransl = translMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
+              const pronunMatch = bufferStr.match(/"pronunciation"\s*:\s*"((?:[^"\\]|\\.)*)/);
+              if (pronunMatch) finalPronun = pronunMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
+            }
+
             clientWs.send(JSON.stringify({
               role,
-              inputTranscription: (splitFinal[0] || "").trim(),
-              outputTranscription: (splitFinal.length > 1 ? splitFinal[1] : "").trim(),
-              outputPronunciation: (splitFinal.length > 2 ? splitFinal[2] : "").trim(),
+              inputTranscription: finalTrans.trim(),
+              outputTranscription: finalTransl.trim(),
+              outputPronunciation: finalPronun.trim(),
               turnComplete: true
             }));
 
@@ -310,9 +339,12 @@ CRITICAL TRANSLATION RULES:
 5. If the input is already in the target language ${targetLang}, then transcription and translation can be identical, but if the input is in ${sourceLang}, the translation slot MUST be in ${targetLang}.
 
 CRITICAL OUTPUT FORMAT REQUIREMENTS:
-Output ONLY the translated text, followed immediately by "|||" and the pronunciation guide.
-Example:
-Hello|||**헬**로우
+Output a valid JSON object and nothing else.
+Format:
+{
+  "translation": "[Translated text]",
+  "pronunciation": "[Pronunciation Guide]"
+}
 
 Pronunciation Guide Rules:
 1. If the target language is NOT Korean, write the pronunciation guide in Korean Hangul so a Korean speaker can read it aloud.
@@ -320,9 +352,8 @@ Pronunciation Guide Rules:
    - Chinese: Add tonal arrows (→, ↗, ↘↗, ↘) after the Hangul to indicate pitch. (e.g., "你好 (Nǐ hǎo)" -> 니↘↗ 하오↘↗)
    - Japanese: Clearly mark long vowels with a dash (-) or tilde (~). (e.g., "ありがとう (Arigatou)" -> 아리가**토**-)
 2. If the target language IS Korean, provide the pronunciation guide in the native alphabet of the original speaker's language (e.g., Romaji for Japanese speakers, Pinyin for Chinese speakers, Romanized for English).
-   - If pronunciation is not needed at all, leave it empty after "|||".
-
-Output purely the translation and the pronunciation separated by "|||". Do NOT include any other text.`;
+   - If pronunciation is not needed at all, leave it empty.
+`;
             
             if (msg.opponentText || msg.previousText) {
                systemPrompt += `\n\n--- CONVERSATION CONTEXT ---`;
@@ -334,7 +365,8 @@ Output purely the translation and the pronunciation separated by "|||". Do NOT i
             responseStream = await fetchWithBackoff(() => ai.models.generateContentStream({
               model: "gemini-3.5-flash",
               config: {
-                systemInstruction: systemPrompt
+                systemInstruction: systemPrompt,
+                responseMimeType: "application/json"
               },
               contents: [
                 {
@@ -383,9 +415,14 @@ Output purely the translation and the pronunciation separated by "|||". Do NOT i
           for await (const chunk of responseStream) {
             bufferStr += chunk.text;
             
-            const splitParts = bufferStr.split("|||");
-            let currTransl = splitParts[0];
-            let currPronunciation = splitParts.length > 1 ? splitParts[1] : "";
+            let currTransl = "";
+            let currPronunciation = "";
+
+            const translMatch = bufferStr.match(/"translation"\s*:\s*"((?:[^"\\]|\\.)*)/);
+            if (translMatch) currTransl = translMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
+
+            const pronunMatch = bufferStr.match(/"pronunciation"\s*:\s*"((?:[^"\\]|\\.)*)/);
+            if (pronunMatch) currPronunciation = pronunMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
             
             let currTrans = finalTranscription;
             
