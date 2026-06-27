@@ -496,6 +496,7 @@ export default function App() {
         previousText: currentComplete.trim(),
         opponentText: opponentComplete.trim(),
         targetLanguageCode: role === 'foreigner' ? 'Korean' : foreignerLang,
+        foreignerLang: foreignerLang,
         ttsEnabled: ttsEnabledRef.current
       }));
     }).catch(console.error);
@@ -559,6 +560,7 @@ export default function App() {
         previousText: currentComplete.trim(),
         opponentText: opponentComplete.trim(),
         targetLanguageCode: role === 'foreigner' ? 'Korean' : foreignerLang,
+        foreignerLang: foreignerLang,
         ttsEnabled: ttsEnabledRef.current
       }));
     }).catch(console.error);

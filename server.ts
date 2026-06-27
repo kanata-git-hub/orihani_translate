@@ -83,11 +83,21 @@ async function startServer() {
           const role = msg.role;
           const ttsEnabled = msg.ttsEnabled !== false;
 
+          const foreignerLangCode = msg.foreignerLang || "en";
+          const foreignerLangName = codeMap[foreignerLangCode.toLowerCase()] || "English";
+          const sourceLang = role === "user" ? "Korean" : foreignerLangName;
+
           try {
             const ai = getAi();
             
             let systemPrompt = `You are an expert conversational translator that analyzes input audio directly. 
-Translate the spoken content in the audio to ${targetLang} in a casually polite tone.
+The speaker is speaking in ${sourceLang}.
+Translate the spoken content in the audio from ${sourceLang} to ${targetLang} in a casually polite tone.
+
+CRITICAL TRANSLATION RULES:
+1. You MUST translate the text into the target language (${targetLang}).
+2. Do NOT output the transcription of the original ${sourceLang} text in the Translation slot. The original transcription and the translation MUST be in their respective languages and must be completely distinct (unless they are exact names or loanwords).
+3. If the audio is already in the target language ${targetLang}, then transcription and translation can be identical, but if the audio is in ${sourceLang}, the translation slot MUST be in ${targetLang}.
 
 CRITICAL PROCESSING RULES FOR NOISE AND SILENCE:
 - First, carefully evaluate if there is any actual human speech in the audio.
@@ -97,7 +107,7 @@ CRITICAL PROCESSING RULES FOR NOISE AND SILENCE:
 OUTPUT FORMAT REQUIREMENTS:
 Output exactly three parts separated by "|||".
 Format:
-[Original Speech Transcription]|||[Casual Polite Translation in ${targetLang}]|||[Pronunciation Guide]
+[Original Speech Transcription in ${sourceLang}]|||[Casual Polite Translation in ${targetLang}]|||[Pronunciation Guide]
 
 Pronunciation Guide Rules:
 1. If the target language is NOT Korean, write the pronunciation guide in Korean Hangul so a Korean speaker can read it aloud.
@@ -261,6 +271,10 @@ Output purely this single-line format and nothing else.`;
           const role = msg.role;
           const ttsEnabled = msg.ttsEnabled !== false;
           
+          const foreignerLangCode = msg.foreignerLang || "en";
+          const foreignerLangName = codeMap[foreignerLangCode.toLowerCase()] || "English";
+          const sourceLang = role === "user" ? "Korean" : foreignerLangName;
+
           try {
             const ai = getAi();
             
@@ -274,7 +288,14 @@ Output purely this single-line format and nothing else.`;
             let responseStream;
           
             // Processing text directly
-            let systemPrompt = `You are an expert conversational translator. Translate the given text to ${targetLang} in a casually polite tone. 
+            let systemPrompt = `You are an expert conversational translator. 
+The input text is written in ${sourceLang}.
+Translate the given text from ${sourceLang} to ${targetLang} in a casually polite tone. 
+
+CRITICAL TRANSLATION RULES:
+1. You MUST translate the text into the target language (${targetLang}).
+2. Do NOT output the original ${sourceLang} text in the Translation slot. The original text and the translation MUST be in their respective languages and must be completely distinct (unless they are exact names or loanwords).
+3. If the input is already in the target language ${targetLang}, then transcription and translation can be identical, but if the input is in ${sourceLang}, the translation slot MUST be in ${targetLang}.
 
 CRITICAL OUTPUT FORMAT REQUIREMENTS:
 Output ONLY the translated text, followed immediately by "|||" and the pronunciation guide.
