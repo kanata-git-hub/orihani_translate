@@ -540,12 +540,8 @@ export default function App() {
     lastSpeakerRef.current = role;
 
     if (role === 'foreigner') {
-       foreignerCompleteRef.current += (foreignerCompleteRef.current ? ' ' : '') + textToSend;
-       setForeignerText((foreignerCompleteRef.current + " " + foreignerPendingRef.current).trim());
        setTextInputForeigner('');
     } else {
-       userCompleteRef.current += (userCompleteRef.current ? ' ' : '') + textToSend;
-       setUserText((userCompleteRef.current + " " + userPendingRef.current).trim());
        setTextInputUser('');
     }
 

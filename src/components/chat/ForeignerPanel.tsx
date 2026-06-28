@@ -1,5 +1,5 @@
-import React from 'react';
-import { Mic, Square, Languages, Volume2, Loader2, LogOut, Shield, Pencil, Send, RotateCcw, Camera, VolumeX } from 'lucide-react';
+import React, { useState } from 'react';
+import { Mic, Square, Languages, Volume2, Loader2, LogOut, Shield, Pencil, Send, RotateCcw, Camera, VolumeX, Copy, Check } from 'lucide-react';
 import { renderPronunciation } from '../../utils/textUtils';
 import { AudioVisualizer } from './AudioVisualizer';
 
@@ -41,6 +41,15 @@ export const ForeignerPanel: React.FC<ForeignerPanelProps> = ({
   playingTTS, playTTS, processingRole,
   imageInputForeignerRef, handleImageChange, audioLevels
 }) => {
+  const [isCopied, setIsCopied] = useState(false);
+
+  const handleCopy = () => {
+    if (!foreignerText) return;
+    navigator.clipboard.writeText(foreignerText);
+    setIsCopied(true);
+    setTimeout(() => setIsCopied(false), 2000);
+  };
+
   return (
     <div className="flex-1 shrink-0 relative bg-[#552c24] text-white flex flex-col p-8 pb-24">
       <div className="flex justify-between items-start mb-6">
@@ -139,13 +148,22 @@ export const ForeignerPanel: React.FC<ForeignerPanelProps> = ({
                   {renderPronunciation(foreignerPronunciation)}
                 </p>
               )}
-              <button 
-                onClick={() => playTTS(foreignerText)} 
-                className="absolute right-0 top-1/2 -translate-y-1/2 w-10 h-10 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full transition-colors"
-                disabled={playingTTS}
-              >
-                {playingTTS ? <Loader2 size={20} className="animate-spin text-[#ffcd4a]" /> : <Volume2 size={20} className="text-[#ffcd4a]" />}
-              </button>
+              <div className="absolute right-0 top-1/2 -translate-y-1/2 flex flex-col gap-2">
+                <button 
+                  onClick={() => playTTS(foreignerText)} 
+                  className="w-10 h-10 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+                  disabled={playingTTS}
+                >
+                  {playingTTS ? <Loader2 size={20} className="animate-spin text-[#ffcd4a]" /> : <Volume2 size={20} className="text-[#ffcd4a]" />}
+                </button>
+                <button 
+                  onClick={handleCopy} 
+                  className="w-10 h-10 flex items-center justify-center bg-white/10 hover:bg-white/20 rounded-full transition-colors"
+                  title="복사하기"
+                >
+                  {isCopied ? <Check size={18} className="text-green-400" /> : <Copy size={18} className="text-[#ffcd4a]" />}
+                </button>
+              </div>
             </div>
           ) : (
             <div className="flex flex-col justify-center">
