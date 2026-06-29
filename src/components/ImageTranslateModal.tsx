@@ -422,7 +422,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
     if (chips.length === 0) return null;
 
     return (
-      <div className="flex gap-2 overflow-x-auto pb-4 px-4 w-full justify-start md:justify-center [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+      <div className="flex flex-wrap justify-center gap-2 max-w-[90vw] md:max-w-[400px]">
         {chips}
       </div>
     );
