@@ -58,8 +58,8 @@ export function LocalSmartSearchModal({ isOpen, onClose, targetLanguageCode }: L
               body { display: flex; flex-direction: column; justify-content: center; align-items: center; height: 100vh; margin: 0; background-color: #fcfcfc; font-family: 'KyoboHandwriting', sans-serif; }
               .spinner { width: 40px; height: 40px; border: 4px solid #f3f3f3; border-top: 4px solid #ffcd4a; border-radius: 50%; animation: spin 1s linear infinite; margin-bottom: 20px; }
               @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-              p { color: #552c24; font-weight: 600; font-size: 18px; margin: 0; text-align: center; }
-              .sub { color: #888; font-size: 14px; margin-top: 8px; font-weight: normal; }
+              p { color: #552c24; font-weight: 600; font-size: 20px; margin: 0; text-align: center; }
+              .sub { color: #888; font-size: 16px; margin-top: 8px; font-weight: normal; }
             </style>
           </head>
           <body>
@@ -102,7 +102,7 @@ export function LocalSmartSearchModal({ isOpen, onClose, targetLanguageCode }: L
   return (
     <div className="absolute inset-0 z-50 flex flex-col bg-white">
       <div className="flex justify-between items-center p-4 border-b border-[#ffcd4a]/30">
-        <h2 className="text-lg font-bold flex items-center text-[#552c24]">
+        <h2 className="text-xl font-bold flex items-center text-[#552c24]">
           <MapPin className="w-5 h-5 mr-2 text-[#ffcd4a]" />
           현지 스마트 검색
         </h2>
@@ -114,18 +114,18 @@ export function LocalSmartSearchModal({ isOpen, onClose, targetLanguageCode }: L
       <div className="flex-1 overflow-y-auto p-4 bg-[#fcfcfc]">
         {!isLoading && (
           <div className="space-y-6">
-            <p className="text-[15px] text-[#552c24]/80 mb-2 leading-relaxed">
+            <p className="text-[16px] text-[#552c24]/80 mb-2 leading-relaxed">
               현지인들이 실제로 사용하는 자연스러운 검색어로 구글 지도에서 원하는 장소를 바로 찾아보세요.
             </p>
             {categories.map((group, i) => (
               <div key={i}>
-                <h3 className="font-semibold text-[#552c24] mb-3 text-sm">{group.title}</h3>
+                <h3 className="font-semibold text-[#552c24] mb-3 text-base">{group.title}</h3>
                 <div className="grid grid-cols-1 gap-2">
                   {group.items.map((item, j) => (
                     <button
                       key={j}
                       onClick={() => handleCategoryClick(item)}
-                      className="text-left w-full px-4 py-3.5 bg-white border border-[#ffcd4a]/30 rounded-xl shadow-sm text-[#552c24] font-medium hover:bg-[#ffcd4a]/10 hover:border-[#ffcd4a] transition-all flex items-center justify-between"
+                      className="text-left w-full px-4 py-4 bg-white border border-[#ffcd4a]/30 rounded-xl shadow-sm text-[#552c24] font-medium text-[16px] hover:bg-[#ffcd4a]/10 hover:border-[#ffcd4a] transition-all flex items-center justify-between"
                     >
                       <span>{item}</span>
                       <Search className="w-4 h-4 text-[#ffcd4a]" />
@@ -140,7 +140,7 @@ export function LocalSmartSearchModal({ isOpen, onClose, targetLanguageCode }: L
         {isLoading && (
           <div className="flex flex-col items-center justify-center h-full space-y-4">
             <Loader2 className="w-10 h-10 animate-spin text-[#ffcd4a]" />
-            <p className="text-[#552c24] font-medium text-center">
+            <p className="text-[#552c24] font-medium text-center text-[16px]">
               최적의 현지 검색어를<br />찾고 있습니다...
             </p>
           </div>
