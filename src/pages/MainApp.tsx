@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Languages, Volume2, VolumeX, Loader2, LogOut, Shield, HelpCircle, X, Pencil, Send, RotateCcw, Camera } from 'lucide-react';
+import { Mic, Square, Languages, Volume2, VolumeX, Loader2, LogOut, Shield, HelpCircle, X, Pencil, Send, RotateCcw, Camera, Compass } from 'lucide-react';
 import { playAudioChunk, resetAudioQueue, setHoldPlayback } from '../audio';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { logout } from '../lib/firebaseUtils';
@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { TutorialModal } from '../components/TutorialModal';
 import { LOCALIZATION } from '../constants/localization';
 import { ImageTranslateModal } from '../components/ImageTranslateModal';
+import { LocalSmartSearchModal } from '../components/LocalSmartSearchModal';
 import { renderPronunciation } from '../utils/textUtils';
 import { ForeignerPanel } from '../components/chat/ForeignerPanel';
 import { UserPanel } from '../components/chat/UserPanel';
@@ -67,6 +68,7 @@ export default function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [isFirstVisit, setIsFirstVisit] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
+  const [showSmartSearch, setShowSmartSearch] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imageTargetLang, setImageTargetLang] = useState<string>('Korean');
   const imageInputForeignerRef = useRef<HTMLInputElement>(null);
@@ -625,7 +627,15 @@ export default function App() {
       />
 
       {/* Divider */}
-      <div className="h-2 w-full bg-[#ffcd4a] z-20 shrink-0 shadow-sm relative" />
+      <div className="h-2 w-full bg-[#ffcd4a] z-20 shrink-0 shadow-sm relative flex items-center justify-center">
+        <button 
+          onClick={() => setShowSmartSearch(true)}
+          className="absolute bg-white text-[#552c24] px-4 py-1.5 rounded-full shadow-md border border-[#ffcd4a] hover:bg-[#ffcd4a]/10 transition-colors z-30 flex items-center gap-1.5"
+        >
+          <Compass className="w-4 h-4 text-[#ffcd4a]" />
+          <span className="text-[13px] font-bold">현지 검색</span>
+        </button>
+      </div>
 
       <UserPanel
         userLoc={userLoc}
@@ -652,6 +662,12 @@ export default function App() {
 
       {/* Help Modal */}
       {showHelp && <TutorialModal onClose={() => { setShowHelp(false); setIsFirstVisit(false); }} isFirstVisit={isFirstVisit} />}
+
+      <LocalSmartSearchModal 
+        isOpen={showSmartSearch}
+        onClose={() => setShowSmartSearch(false)}
+        targetLanguageCode={foreignerLang}
+      />
 
       <ImageTranslateModal 
         isOpen={showImageModal} 

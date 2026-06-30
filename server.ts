@@ -613,6 +613,47 @@ Return a strict JSON object with this exact structure:
     }
   });
 
+  app.post("/api/smart-search", async (req, res) => {
+    try {
+      const { category, targetLanguage } = req.body;
+      const ai = getAi();
+      
+      const systemPrompt = `You are a local travel expert. 
+The user selected the category: "${category}". 
+The destination language is: "${targetLanguage}".
+
+Find the MOST natural, culturally appropriate, and optimal local keyword for this category that locals actually use when searching on Google Maps. 
+
+For example:
+- If target is Japanese and category is "현지인 선술집", use "大衆居酒屋" or "立ち飲み".
+- If target is French and category is "로컬 대형 마트", use "Hypermarché".
+- If target is English and category is "가성비 백반집", use "Greasy spoon" or "Diner".
+
+Return a strict JSON object with this exact structure:
+{
+  "keyword": "The optimal local keyword in the destination language",
+  "explanation": "A very short, 1-line explanation in Korean (e.g., '현지인들이 퇴근 후 들르는 가성비 술집입니다.')"
+}`;
+
+      const response = await fetchWithBackoff(() => ai.models.generateContent({
+        model: "gemini-3.5-flash",
+        contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
+        config: {
+          responseMimeType: "application/json"
+        }
+      }));
+
+      if (response?.text) {
+          const parsed = JSON.parse(response.text);
+          return res.json(parsed);
+      }
+      res.status(500).json({ error: "Failed to generate search keyword" });
+    } catch(e: any) {
+        console.error("Smart Search Error", e);
+        res.status(500).json({ error: e?.message || "Unknown error" });
+    }
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const { createServer: createViteServer } = await import("vite");

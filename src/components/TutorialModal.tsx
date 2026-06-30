@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Mic, Square, Pencil, Send, Camera, Download, Languages, RotateCcw, Volume2, HelpCircle, ChevronLeft, ChevronRight, X, Image as ImageIcon } from 'lucide-react';
+import { Mic, Square, Pencil, Send, Camera, Download, Languages, RotateCcw, Volume2, HelpCircle, ChevronLeft, ChevronRight, X, Image as ImageIcon, Compass } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface TutorialModalProps {
@@ -240,7 +240,12 @@ export function TutorialModal({ onClose, isFirstVisit = false }: TutorialModalPr
                <Volume2 size={16} />
              </div>
           </div>
-          <div className="h-1 w-full bg-[#ffcd4a] shrink-0" />
+          <div className="h-4 w-full bg-[#ffcd4a] shrink-0 relative flex items-center justify-center">
+             <div className="bg-white text-[#552c24] px-2 py-1 rounded-full shadow-md border border-[#ffcd4a] z-10 scale-[0.6] flex items-center gap-1.5">
+                <Compass size={14} className="text-[#ffcd4a]" />
+                <span className="text-[12px] font-bold whitespace-nowrap">현지 검색</span>
+             </div>
+          </div>
           {/* Bottom Bar (User) */}
           <div className="bg-white p-3 h-1/2 relative">
              <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 bg-black/5 px-3 py-2 rounded-full text-[#552c24] shadow-sm">
@@ -255,12 +260,13 @@ export function TutorialModal({ onClose, isFirstVisit = false }: TutorialModalPr
         </div>
       ),
       content: (
-        <div className="text-[16px] mt-1 px-2">
-          <ul className="space-y-2 text-zinc-700">
-            <li className="flex items-center"><IconBadge icon={Languages} isNeutral /> <span><strong>언어선택:</strong> 번역할 외국어 선택</span></li>
-            <li className="flex items-center"><IconBadge icon={RotateCcw} isNeutral /> <span><strong>초기화:</strong> 대화 내용 모두 지우기</span></li>
-            <li className="flex items-center"><IconBadge icon={Volume2} isNeutral /> <span><strong>사운드:</strong> 소리를 들을지 켬/끔</span></li>
-            <li className="flex items-center"><IconBadge icon={Download} isNeutral /> <span><strong>화면 캡처:</strong> 현재 화면을 이미지로 저장</span></li>
+        <div className="text-[15px] mt-1 px-1">
+          <ul className="space-y-1.5 text-zinc-700">
+            <li className="flex items-center"><IconBadge icon={Languages} isNeutral /> <span className="flex-1"><strong>언어:</strong> 번역할 외국어 선택</span></li>
+            <li className="flex items-center"><IconBadge icon={RotateCcw} isNeutral /> <span className="flex-1"><strong>초기화:</strong> 대화 내용 초기화</span></li>
+            <li className="flex items-center"><IconBadge icon={Compass} isNeutral /> <span className="flex-1"><strong>현지 검색:</strong> 현지 장소 스마트 검색</span></li>
+            <li className="flex items-center"><IconBadge icon={Volume2} isNeutral /> <span className="flex-1"><strong>사운드:</strong> 자동 음성 재생 켬/끔</span></li>
+            <li className="flex items-center"><IconBadge icon={Download} isNeutral /> <span className="flex-1"><strong>캡처:</strong> 현재 화면을 이미지로 저장</span></li>
           </ul>
         </div>
       )
