@@ -1,5 +1,5 @@
 {
-  "name": "오원장톡: 실시간 통역",
+  "name": "오리 가이드 : 스마트 사진 번역 & 현지 검색",
   "description": "Accessibility-focused real-time translation app using Gemini Live.",
   "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
