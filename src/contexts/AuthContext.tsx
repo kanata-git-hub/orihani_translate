@@ -57,7 +57,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <AuthContext.Provider value={{ user, loading, isAdmin, isApproved }}>
-      {!loading && children}
+      {loading ? (
+        <div style={{
+          position: 'fixed',
+          top: 0,
+          left: 0,
+          width: '100vw',
+          height: '100vh',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          backgroundColor: '#ffffff',
+          zIndex: 9999,
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
+        }}>
+          <img 
+            src="/persona.png" 
+            alt="오리 가이드" 
+            style={{
+              width: '250px',
+              height: '250px',
+              objectFit: 'cover',
+              marginBottom: '24px'
+            }} 
+          />
+          <h1 style={{
+            fontSize: '32px',
+            fontWeight: 700,
+            color: '#1a1a1a',
+            margin: 0,
+            letterSpacing: '-0.5px'
+          }}>오리 가이드</h1>
+        </div>
+      ) : (
+        children
+      )}
     </AuthContext.Provider>
   );
 };

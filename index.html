@@ -9,7 +9,41 @@
     <title>오리 가이드</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <style>
+        #splash {
+          position: fixed;
+          top: 0;
+          left: 0;
+          width: 100vw;
+          height: 100vh;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          background-color: #ffffff;
+          z-index: 9999;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        #splash img {
+          width: 250px;
+          height: 250px;
+          object-fit: cover;
+          margin-bottom: 24px;
+        }
+        #splash h1 {
+          font-size: 32px;
+          font-weight: 700;
+          color: #1a1a1a;
+          margin: 0;
+          letter-spacing: -0.5px;
+        }
+      </style>
+      <div id="splash">
+        <img src="/persona.png" alt="오리 가이드" />
+        <h1>오리 가이드</h1>
+      </div>
+    </div>
     <script>
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
