@@ -85,9 +85,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           <h1 style={{
             fontSize: '32px',
             fontWeight: 700,
-            color: '#1a1a1a',
+            color: '#552c24',
             margin: 0,
-            letterSpacing: '-0.5px'
+            letterSpacing: '-0.5px',
+            fontFamily: "'KyoboHandwriting', sans-serif"
           }}>오리 가이드</h1>
         </div>
       ) : (
