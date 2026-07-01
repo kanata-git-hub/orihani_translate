@@ -73,7 +73,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif'
         }}>
           <img 
-            src="/persona.png" 
+            src="/icon.png" 
             alt="오리 가이드" 
             style={{
               width: '250px',

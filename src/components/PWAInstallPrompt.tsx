@@ -8,6 +8,7 @@ export default function PWAInstallPrompt() {
   const [isIOS, setIsIOS] = useState(false);
   const [showIOSModal, setShowIOSModal] = useState(false);
   const [isVisible, setIsVisible] = useState(false);
+  const [inIframe, setInIframe] = useState(false);
 
   useEffect(() => {
     // 1. Check if already installed
@@ -20,6 +21,17 @@ export default function PWAInstallPrompt() {
     const isDismissed = localStorage.getItem('installPromptDismissed');
     if (isDismissed === 'true') {
       return; // User doesn't want to see this
+    }
+
+    // Check if we are in an iframe (AI Studio preview)
+    const isInsideIframe = window !== window.top;
+    setInIframe(isInsideIframe);
+
+    if (isInsideIframe) {
+      // In an iframe (e.g. AI Studio preview), beforeinstallprompt won't fire and iOS share menu will add the wrong page.
+      setIsInstallable(false);
+      setIsVisible(true);
+      return;
     }
 
     // 3. Detect iOS Safari (including iPadOS)
@@ -94,17 +106,25 @@ export default function PWAInstallPrompt() {
               <Download className="w-6 h-6 text-indigo-600 dark:text-indigo-400" />
             </div>
             <div>
-              <h4 className="font-semibold text-zinc-900 dark:text-white text-sm">앱 설치하기</h4>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400">홈 화면에 추가하고 빠르게 접속하세요</p>
+              <h4 className="font-semibold text-zinc-900 dark:text-white text-sm">
+                앱 설치하기
+              </h4>
+              {!inIframe && (
+                <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                  홈 화면에 추가하고 빠르게 접속하세요
+                </p>
+              )}
             </div>
           </div>
           <div className="flex items-center space-x-2">
-            <button 
-              onClick={handleInstallClick}
-              className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors"
-            >
-              설치
-            </button>
+            {!inIframe && (
+              <button 
+                onClick={handleInstallClick}
+                className="bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-colors"
+              >
+                설치
+              </button>
+            )}
             <button 
               onClick={handleDismiss}
               className="p-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
