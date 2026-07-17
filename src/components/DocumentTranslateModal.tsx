@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, Loader2, Download, AlertCircle, StopCircle, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { db } from '../lib/db';
-import jsPDF from 'jspdf';
+
 import { domToJpeg } from 'modern-screenshot';
 
 interface TextBlock {
@@ -263,12 +263,11 @@ export function DocumentTranslateModal({ isOpen, onClose, targetLang, files }: D
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isProcessing, stopRequested]);
 
-  const handleExportPDF = async () => {
+  const handleExportJPGs = async () => {
     if (!sessionId) return;
     setIsExporting(true);
     try {
-      const pdf = new jsPDF({ unit: 'px', format: 'a4', compress: true });
-      let isFirstPage = true;
+      const pixelRatio = Math.max(2, window.devicePixelRatio || 1);
 
       for (let i = 0; i < pages.length; i++) {
         const page = pages[i];
@@ -277,46 +276,23 @@ export function DocumentTranslateModal({ isOpen, onClose, targetLang, files }: D
         const element = document.getElementById(`page-render-${i}`);
         if (!element) continue;
 
-        const imgData = await domToJpeg(element, { 
-          scale: 2, 
+        const dataUrl = await domToJpeg(element, { 
+          scale: pixelRatio, 
           backgroundColor: '#ffffff',
           quality: 0.95
         });
         
-        const img = new Image();
-        img.src = imgData;
-        await new Promise((resolve, reject) => {
-          img.onload = resolve;
-          img.onerror = reject;
-        });
-
-        const pdfWidth = pdf.internal.pageSize.getWidth();
-        const pdfHeight = pdf.internal.pageSize.getHeight();
-        const imgRatio = img.width / img.height;
-        const pdfRatio = pdfWidth / pdfHeight;
-
-        let renderWidth = pdfWidth;
-        let renderHeight = pdfHeight;
+        const link = document.createElement('a');
+        link.download = `translation_page_${i + 1}_${Date.now()}.jpg`;
+        link.href = dataUrl;
+        link.click();
         
-        if (imgRatio > pdfRatio) {
-          renderHeight = pdfWidth / imgRatio;
-        } else {
-          renderWidth = pdfHeight * imgRatio;
-        }
-
-        if (!isFirstPage) pdf.addPage();
-        isFirstPage = false;
-        
-        const xOffset = (pdfWidth - renderWidth) / 2;
-        const yOffset = (pdfHeight - renderHeight) / 2;
-
-        pdf.addImage(imgData, 'JPEG', xOffset, yOffset, renderWidth, renderHeight);
+        // 다운로드 겹침 방지를 위해 짧은 지연시간 부여
+        await new Promise(resolve => setTimeout(resolve, 300));
       }
-
-      pdf.save(`translation_${Date.now()}.pdf`);
     } catch (e) {
       console.error(e);
-      alert('PDF 생성에 실패했습니다.');
+      alert('이미지 생성에 실패했습니다.');
     } finally {
       setIsExporting(false);
     }
@@ -363,9 +339,9 @@ export function DocumentTranslateModal({ isOpen, onClose, targetLang, files }: D
                 </button>
               )}
               {completedCount > 0 && (
-                <button onClick={handleExportPDF} disabled={isExporting} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors disabled:opacity-50">
+                <button onClick={handleExportJPGs} disabled={isExporting} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors disabled:opacity-50">
                   {isExporting ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
-                  <span className="text-sm font-bold hidden sm:block">PDF</span>
+                  <span className="text-sm font-bold hidden sm:block">JPG</span>
                 </button>
               )}
               <button onClick={handleCloseClick} className="p-2 rounded-full hover:bg-white/10 text-white transition-colors">
