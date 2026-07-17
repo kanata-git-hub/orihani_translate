@@ -225,6 +225,7 @@ export const ForeignerPanel: React.FC<ForeignerPanelProps> = ({
             <input 
               type="file" 
               accept="image/*" 
+              multiple
               className="hidden" 
               ref={imageInputForeignerRef}
               onChange={(e) => handleImageChange(e, 'foreigner')} 

@@ -8,6 +8,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { TutorialModal } from '../components/TutorialModal';
 import { LOCALIZATION } from '../constants/localization';
 import { ImageTranslateModal } from '../components/ImageTranslateModal';
+import { DocumentTranslateModal } from '../components/DocumentTranslateModal';
 import { LocalSmartSearchModal } from '../components/LocalSmartSearchModal';
 import { renderPronunciation } from '../utils/textUtils';
 import { ForeignerPanel } from '../components/chat/ForeignerPanel';
@@ -68,8 +69,10 @@ export default function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [isFirstVisit, setIsFirstVisit] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
+  const [showDocumentModal, setShowDocumentModal] = useState(false);
   const [showSmartSearch, setShowSmartSearch] = useState(false);
   const [imageFile, setImageFile] = useState<File | null>(null);
+  const [documentFiles, setDocumentFiles] = useState<File[]>([]);
   const [imageTargetLang, setImageTargetLang] = useState<string>('Korean');
   const imageInputForeignerRef = useRef<HTMLInputElement>(null);
   const imageInputUserRef = useRef<HTMLInputElement>(null);
@@ -521,12 +524,18 @@ export default function App() {
   };
 
   const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>, role: 'foreigner' | 'user') => {
-    const file = e.target.files?.[0];
-    if (file) {
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) {
       if (activeMic) stopRecording();
       setImageTargetLang(role === 'foreigner' ? 'Korean' : foreignerLang);
-      setImageFile(file);
-      setShowImageModal(true);
+      
+      if (files.length === 1) {
+        setImageFile(files[0]);
+        setShowImageModal(true);
+      } else {
+        setDocumentFiles(files);
+        setShowDocumentModal(true);
+      }
     }
     // reset input
     e.target.value = '';
@@ -677,6 +686,16 @@ export default function App() {
         }} 
         targetLang={imageTargetLang}
         file={imageFile}
+      />
+
+      <DocumentTranslateModal
+        isOpen={showDocumentModal}
+        onClose={() => {
+          setShowDocumentModal(false);
+          setDocumentFiles([]);
+        }}
+        targetLang={imageTargetLang}
+        files={documentFiles}
       />
     </div>
   );

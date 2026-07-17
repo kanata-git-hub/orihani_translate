@@ -5,7 +5,7 @@ import { fileURLToPath } from "url";
 import http from "http";
 import dotenv from "dotenv";
 import { WebSocketServer, WebSocket } from "ws";
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,12 +26,15 @@ function getAi(): GoogleGenAI {
 }
 
 // Exponential backoff helper
-async function fetchWithBackoff(fn: () => Promise<any>, retries = 3, delayMs = 1000) {
+async function fetchWithBackoff(fn: () => Promise<any>, retries = 3, delayMs = 1000, timeoutMs = 45000) {
   for (let i = 0; i < retries; i++) {
     try {
-      return await fn();
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("API Timeout")), timeoutMs);
+      });
+      return await Promise.race([fn(), timeoutPromise]);
     } catch (e: any) {
-      const isRateLimitOrOverload = e?.status === 429 || e?.status === 503 || e?.message?.includes("429") || e?.message?.includes("503");
+      const isRateLimitOrOverload = e?.status === 429 || e?.status === 503 || e?.message?.includes("429") || e?.message?.includes("503") || e?.message?.includes("Timeout");
       if (i === retries - 1 || !isRateLimitOrOverload) throw e;
       console.warn(`API Error [${e.status || e.message}], retrying in ${delayMs}ms (attempt ${i + 1}/${retries})...`);
       await new Promise(resolve => setTimeout(resolve, delayMs));
@@ -530,6 +533,7 @@ TASK 1: EXHAUSTIVE OCR & TRANSLATION (CRITICAL)
 - The translation MUST sound completely natural to a native speaker of the target language (${targetLang}) (e.g., Japanese for Japanese, Korean for Korean, American for English, etc.). Ensure the tone, phrasing, grammar, and vocabulary are localized and authentic. You MUST completely rewrite the sentence to fit the natural grammar and expressions of the target language, avoiding literal or word-for-word translations.
 - If the target language is Korean, you MUST avoid unnatural literal translations such as excessive passive voice (피동 표현) and awkwardly translated idioms. Rephrase them into natural Korean expressions.
 - For each paragraph block, provide the \`[ymin, xmin, ymax, xmax]\` coordinates normalized from 0 to 1000 representing the bounding box encompassing the entire paragraph in the original image.
+- IMPORTANT: Your output MUST be strictly valid JSON. Ensure all double quotes inside strings are escaped as \\\". Ensure all newlines inside strings are escaped as \\n. Do not include trailing commas.
 
 TASK 2: CONTEXT ANALYSIS
 - Classify the overall image into one of these categories:
@@ -552,7 +556,7 @@ Extract relevant data for any of the fields below that are applicable to the ima
 Return a strict JSON object with this exact structure:
 {
   "blocks": [
-    { "original": "string", "translation": "string", "box": [number, number, number, number] }
+    { "translation": "string", "box": [number, number, number, number] }
   ],
   "category": "string",
   "extracted_data": {
@@ -576,14 +580,57 @@ Return a strict JSON object with this exact structure:
           ]
         }],
         config: {
-          responseMimeType: "application/json"
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.OBJECT,
+            properties: {
+              blocks: {
+                type: Type.ARRAY,
+                items: {
+                  type: Type.OBJECT,
+                  properties: {
+                    translation: { type: Type.STRING },
+                    box: { type: Type.ARRAY, items: { type: Type.INTEGER } }
+                  },
+                  required: ["translation", "box"]
+                }
+              },
+              category: { type: Type.STRING },
+              extracted_data: {
+                type: Type.OBJECT,
+                properties: {
+                  amount: { type: Type.NUMBER, nullable: true },
+                  currency: { type: Type.STRING, nullable: true },
+                  location_keyword: { type: Type.STRING, nullable: true },
+                  search_keyword: { type: Type.STRING, nullable: true },
+                  summary: { type: Type.STRING, nullable: true }
+                },
+                required: ["amount", "currency", "location_keyword", "search_keyword", "summary"]
+              }
+            },
+            required: ["blocks", "category", "extracted_data"]
+          },
+          maxOutputTokens: 8192
         }
       }));
 
       if (response?.text) {
-          const parsed = JSON.parse(response.text);
-          // ensure the root is returned, not just blocks
-          return res.json(parsed);
+          let text = response.text.trim();
+          if (text.startsWith('```json')) {
+            text = text.substring(7);
+          } else if (text.startsWith('```')) {
+            text = text.substring(3);
+          }
+          if (text.endsWith('```')) {
+            text = text.substring(0, text.length - 3);
+          }
+          try {
+            const parsed = JSON.parse(text);
+            return res.json(parsed);
+          } catch (parseError) {
+            console.error("JSON Parse Error. Raw response was:", text);
+            throw parseError;
+          }
       }
       res.status(500).json({ error: "Failed to process image" });
     } catch(e: any) {

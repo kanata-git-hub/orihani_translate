@@ -85,6 +85,7 @@ export const UserPanel: React.FC<UserPanelProps> = ({
             <input 
               type="file" 
               accept="image/*" 
+              multiple
               className="hidden" 
               ref={imageInputUserRef}
               onChange={(e) => handleImageChange(e, 'user')} 

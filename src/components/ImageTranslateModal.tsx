@@ -76,7 +76,7 @@ const FontAdjustableText = ({ text, box, onClick }: { text: string, box: number[
   return (
     <div 
       ref={containerRef}
-      className="w-full h-full flex flex-col items-center justify-center relative cursor-pointer rounded-md overflow-hidden bg-white/85 backdrop-blur-md shadow-[0_2px_10px_rgba(0,0,0,0.1)] border border-white/60 hover:bg-white/90 hover:shadow-[0_4px_15px_rgba(0,0,0,0.15)] hover:-translate-y-[1px] transition-all duration-200 p-0.5 sm:p-1"
+      className="w-full h-full flex flex-col items-center justify-center relative cursor-pointer rounded-sm overflow-hidden bg-white hover:bg-gray-50 transition-colors p-0.5 sm:p-1"
       onClick={onClick}
     >
       <div 
@@ -560,7 +560,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                             transform: 'translateZ(0)',
                           }}
                         >
-                          <div className="absolute inset-0 sm:-inset-0.5">
+                          <div className="absolute inset-0">
                             <FontAdjustableText text={block.translation} box={block.box} onClick={() => setSelectedBlock(block)} />
                           </div>
                         </motion.div>
