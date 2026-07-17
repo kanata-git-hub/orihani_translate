@@ -97,7 +97,8 @@ Translate the spoken content in the audio from ${sourceLang} to ${targetLang} in
 CRITICAL TRANSLATION RULES:
 1. You MUST translate the text into the target language (${targetLang}).
 2. The translation MUST sound completely natural to a native speaker of the target language (e.g., Japanese for Japanese, Korean for Korean, American for English, etc.). Ensure the tone, phrasing, and vocabulary are localized and authentic.
-3. You MUST write the translation using the NATIVE writing system of the target language (${targetLang}).
+3. If the target language is Korean, you MUST avoid unnatural literal translations such as excessive passive voice (피동 표현) and awkwardly translated idioms. Rephrase them into natural Korean expressions.
+4. You MUST write the translation using the NATIVE writing system of the target language (${targetLang}).
    - If the target language is Japanese, you MUST write the translation in Japanese characters (Kanji, Hiragana, Katakana) like "でも、これ冷静に考えると".
    - If the target language is English or Spanish, you MUST write the translation in the Latin alphabet like "But, thinking about this calmly".
    - If the target language is Chinese, you MUST write the translation in Chinese characters (Hanzi) like "但是，冷静地想一想".
@@ -331,7 +332,8 @@ Translate the given text from ${sourceLang} to ${targetLang} in a casually polit
 CRITICAL TRANSLATION RULES:
 1. You MUST translate the text into the target language (${targetLang}).
 2. The translation MUST sound completely natural to a native speaker of the target language (e.g., Japanese for Japanese, Korean for Korean, American for English, etc.). Ensure the tone, phrasing, and vocabulary are localized and authentic.
-3. You MUST write the translation using the NATIVE writing system of the target language (${targetLang}).
+3. If the target language is Korean, you MUST avoid unnatural literal translations such as excessive passive voice (피동 표현) and awkwardly translated idioms. Rephrase them into natural Korean expressions.
+4. You MUST write the translation using the NATIVE writing system of the target language (${targetLang}).
    - If the target language is Japanese, you MUST write the translation in Japanese characters (Kanji, Hiragana, Katakana) like "라도, 이거 냉정하게 생각하면" -> "でも、これ冷静に考えると".
    - If the target language is English or Spanish, you MUST write the translation in the Latin alphabet like "But, thinking about this calmly".
    - If the target language is Chinese, you MUST write the translation in Chinese characters (Hanzi) like "但是，冷静地想一想".
@@ -526,6 +528,7 @@ TASK 1: EXHAUSTIVE OCR & TRANSLATION (CRITICAL)
 - Group ALL text found in the image into logical paragraph blocks (do NOT split by individual words or single lines unless they stand alone).
 - You MUST extract and translate EVERY single piece of text visible in the image to ${targetLang}. Do not skip any text, no matter how small or dense.
 - The translation MUST sound completely natural to a native speaker of the target language (${targetLang}) (e.g., Japanese for Japanese, Korean for Korean, American for English, etc.). Avoid literal, awkward translations and ensure the phrasing is authentic and culturally appropriate for the target language.
+- If the target language is Korean, you MUST avoid unnatural literal translations such as excessive passive voice (피동 표현) and awkwardly translated idioms. Rephrase them into natural Korean expressions.
 - For each paragraph block, provide the \`[ymin, xmin, ymax, xmax]\` coordinates normalized from 0 to 1000 representing the bounding box encompassing the entire paragraph in the original image.
 
 TASK 2: CONTEXT ANALYSIS
