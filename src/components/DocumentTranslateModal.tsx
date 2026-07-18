@@ -155,6 +155,71 @@ export function DocumentTranslateModal({ isOpen, onClose, targetLang, files }: D
     stopRequestedRef.current = stopRequested;
   }, [stopRequested]);
 
+  const processPage = async (pageIdx: number, checkMounted: () => boolean) => {
+    setPages(prev => prev.map((p, i) => i === pageIdx ? { ...p, status: 'processing' } : p));
+    const file = files[pageIdx];
+    let retryCount = 0;
+    let success = false;
+    let resultData: any = null;
+    let compressed: { mimeType: string, base64: string } | null = null;
+
+    while (retryCount < 2 && !success && checkMounted() && !stopRequestedRef.current) {
+      try {
+        if (!compressed) {
+          compressed = await compressImage(file);
+        }
+        const response = await fetch('/api/translate-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            imageParams: { mimeType: compressed.mimeType, data: compressed.base64 },
+            targetLang
+          })
+        });
+        if (!response.ok) {
+          if (response.status === 429) {
+            await new Promise(r => setTimeout(r, 3000));
+            retryCount++;
+            continue;
+          }
+          throw new Error('API Error ' + response.status);
+        }
+        resultData = await response.json();
+        success = true;
+      } catch (err) {
+        console.error("Error in loop:", err);
+        await new Promise(r => setTimeout(r, 2000));
+        retryCount++;
+      }
+    }
+
+    if (!checkMounted()) return false;
+
+    if (success && compressed && resultData) {
+      setPages(prev => prev.map((p, i) => i === pageIdx ? {
+        ...p,
+        status: 'completed',
+        originalBase64: `data:${compressed!.mimeType};base64,${compressed!.base64}`,
+        blocks: resultData.blocks
+      } : p));
+      await db.savePage({
+        id: `${sessionId}_${pageIdx}`,
+        sessionId: sessionId!,
+        pageIndex: pageIdx,
+        originalImageBase64: `data:${compressed!.mimeType};base64,${compressed!.base64}`,
+        translatedImageBase64: '',
+        blocks: resultData.blocks
+      });
+    } else {
+      // If stopped or errored, mark as error so we can retry or at least show it
+      setPages(prev => prev.map((p, i) => i === pageIdx ? { ...p, status: 'error' } : p));
+    }
+
+    // Always show viewer after a page is processed
+    setShowViewer(true);
+    return success;
+  };
+
   useEffect(() => {
     if (!isOpen || !isProcessing || !sessionId) return;
     if (processingRef.current) return;
@@ -169,73 +234,7 @@ export function DocumentTranslateModal({ isOpen, onClose, targetLang, files }: D
     const processAll = async () => {
       for (let nextIdx = 0; nextIdx < files.length; nextIdx++) {
         if (!isMounted || stopRequestedRef.current) break;
-
-        setPages(prev => prev.map((p, i) => i === nextIdx ? { ...p, status: 'processing' } : p));
-
-        const file = files[nextIdx];
-        let retryCount = 0;
-        let success = false;
-        let resultData: any = null;
-        let compressed: { mimeType: string, base64: string } | null = null;
-
-        while (retryCount < 2 && !success && isMounted && !stopRequestedRef.current) {
-          try {
-            if (!compressed) {
-              compressed = await compressImage(file);
-            }
-
-            const response = await fetch('/api/translate-image', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                imageParams: { mimeType: compressed.mimeType, data: compressed.base64 },
-                targetLang
-              })
-            });
-
-            if (!response.ok) {
-              if (response.status === 429) {
-                await new Promise(r => setTimeout(r, 3000));
-                retryCount++;
-                continue;
-              }
-              throw new Error('API Error ' + response.status);
-            }
-
-            resultData = await response.json();
-            success = true;
-          } catch (err) {
-            console.error("Error in loop:", err);
-            await new Promise(r => setTimeout(r, 2000));
-            retryCount++;
-          }
-        }
-
-        if (!isMounted) break;
-
-        if (success && compressed && resultData) {
-          setPages(prev => prev.map((p, i) => i === nextIdx ? { 
-            ...p, 
-            status: 'completed',
-            originalBase64: `data:${compressed!.mimeType};base64,${compressed!.base64}`,
-            blocks: resultData.blocks 
-          } : p));
-
-          await db.savePage({
-            id: `${sessionId}_${nextIdx}`,
-            sessionId,
-            pageIndex: nextIdx,
-            originalImageBase64: `data:${compressed!.mimeType};base64,${compressed!.base64}`,
-            translatedImageBase64: '', 
-            blocks: resultData.blocks
-          });
-        } else {
-          // If stopped or errored, mark as error so we can retry or at least show it
-          setPages(prev => prev.map((p, i) => i === nextIdx ? { ...p, status: 'error' } : p));
-        }
-        
-        // Always show viewer after a page is processed
-        setShowViewer(true);
+        await processPage(nextIdx, () => isMounted);
       }
       
       if (isMounted) {
@@ -263,11 +262,13 @@ export function DocumentTranslateModal({ isOpen, onClose, targetLang, files }: D
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [isProcessing, stopRequested]);
 
-  const handleExportJPGs = async () => {
+  const handleExportHybrid = async () => {
     if (!sessionId) return;
     setIsExporting(true);
     try {
       const pixelRatio = Math.max(2, window.devicePixelRatio || 1);
+      const filesToShare: File[] = [];
+      const dataUrls: { base64: string, name: string }[] = [];
 
       for (let i = 0; i < pages.length; i++) {
         const page = pages[i];
@@ -282,19 +283,78 @@ export function DocumentTranslateModal({ isOpen, onClose, targetLang, files }: D
           quality: 0.95
         });
         
-        const link = document.createElement('a');
-        link.download = `translation_page_${i + 1}_${Date.now()}.jpg`;
-        link.href = dataUrl;
-        link.click();
+        const fileName = `translation_page_${i + 1}_${Date.now()}.jpg`;
         
-        // 다운로드 겹침 방지를 위해 짧은 지연시간 부여
-        await new Promise(resolve => setTimeout(resolve, 300));
+        // For ZIP fallback
+        const base64Data = dataUrl.split(',')[1];
+        dataUrls.push({ base64: base64Data, name: fileName });
+
+        // For Native Share
+        try {
+          const res = await fetch(dataUrl);
+          const blob = await res.blob();
+          const file = new File([blob], fileName, { type: 'image/jpeg' });
+          filesToShare.push(file);
+        } catch (e) {
+          console.warn('Failed to create File object', e);
+        }
+      }
+
+      if (filesToShare.length > 0 && navigator.canShare && navigator.canShare({ files: filesToShare })) {
+        try {
+          await navigator.share({
+            title: '번역된 문서',
+            files: filesToShare
+          });
+        } catch (error: any) {
+          if (error.name !== 'AbortError') {
+            console.error('Share failed', error);
+            alert('공유에 실패했습니다.');
+          }
+        }
+      } else {
+        // Fallback to ZIP
+        const JSZip = (await import('jszip')).default;
+        const zip = new JSZip();
+        
+        for (const item of dataUrls) {
+          zip.file(item.name, item.base64, { base64: true });
+        }
+        
+        const zipContent = await zip.generateAsync({ type: 'blob' });
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(zipContent);
+        link.download = `translated_documents_${Date.now()}.zip`;
+        link.click();
+        URL.revokeObjectURL(link.href);
       }
     } catch (e) {
       console.error(e);
-      alert('이미지 생성에 실패했습니다.');
+      alert('이미지 생성 및 처리에 실패했습니다.');
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  const handleDownloadSinglePage = async (index: number) => {
+    try {
+      const pixelRatio = Math.max(2, window.devicePixelRatio || 1);
+      const element = document.getElementById(`page-render-${index}`);
+      if (!element) return;
+
+      const dataUrl = await domToJpeg(element, { 
+        scale: pixelRatio, 
+        backgroundColor: '#ffffff',
+        quality: 0.95
+      });
+      
+      const link = document.createElement('a');
+      link.download = `translation_page_${index + 1}_${Date.now()}.jpg`;
+      link.href = dataUrl;
+      link.click();
+    } catch (e) {
+      console.error(e);
+      alert('개별 다운로드에 실패했습니다.');
     }
   };
 
@@ -339,9 +399,9 @@ export function DocumentTranslateModal({ isOpen, onClose, targetLang, files }: D
                 </button>
               )}
               {completedCount > 0 && (
-                <button onClick={handleExportJPGs} disabled={isExporting} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors disabled:opacity-50">
+                <button onClick={handleExportHybrid} disabled={isExporting} className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-colors disabled:opacity-50">
                   {isExporting ? <Loader2 size={18} className="animate-spin" /> : <Download size={18} />}
-                  <span className="text-sm font-bold hidden sm:block">JPG</span>
+                  <span className="text-sm font-bold hidden sm:block">저장/공유</span>
                 </button>
               )}
               <button onClick={handleCloseClick} className="p-2 rounded-full hover:bg-white/10 text-white transition-colors">
@@ -395,12 +455,31 @@ export function DocumentTranslateModal({ isOpen, onClose, targetLang, files }: D
                   ) : page.status === 'error' ? (
                     <div className="flex flex-col items-center justify-center py-32 text-red-400">
                       <AlertCircle className="w-10 h-10 mb-4" />
-                      <p className="font-bold">{idx + 1}페이지 번역 실패</p>
+                      <p className="font-bold mb-4">{idx + 1}페이지 번역 실패</p>
+                      <button 
+                        onClick={() => {
+                           setStopRequested(false);
+                           processPage(idx, () => true);
+                        }}
+                        className="px-4 py-2 bg-red-500/20 text-red-400 hover:bg-red-500/30 rounded-lg font-bold transition-colors"
+                      >
+                        재시도
+                      </button>
                     </div>
                   ) : (
-                    <div className="rounded-lg shadow-xl overflow-hidden max-w-full">
-                      <div id={`page-render-${idx}`} className="relative inline-block max-w-full">
-                        <img 
+                    <div className="w-full flex flex-col items-center gap-3">
+                      <div className="w-full flex justify-end">
+                        <button 
+                          onClick={() => handleDownloadSinglePage(idx)}
+                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors"
+                        >
+                          <Download size={16} />
+                          <span className="text-sm font-bold">개별 다운로드</span>
+                        </button>
+                      </div>
+                      <div className="rounded-lg shadow-xl overflow-hidden max-w-full">
+                        <div id={`page-render-${idx}`} className="relative inline-block max-w-full bg-white">
+                          <img 
                           src={page.originalBase64} 
                           alt={`Page ${idx + 1}`} 
                           className="block max-w-full"
@@ -430,6 +509,7 @@ export function DocumentTranslateModal({ isOpen, onClose, targetLang, files }: D
                         </div>
                       )}
                     </div>
+                  </div>
                   </div>
                   )}
                 </div>
