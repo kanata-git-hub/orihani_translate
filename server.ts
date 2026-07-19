@@ -556,7 +556,7 @@ Extract relevant data for any of the fields below that are applicable to the ima
 Return a strict JSON object with this exact structure:
 {
   "blocks": [
-    { "translation": "string", "box": [number, number, number, number] }
+    { "original": "string", "translation": "string", "box": [number, number, number, number] }
   ],
   "category": "string",
   "extracted_data": {
@@ -589,10 +589,11 @@ Return a strict JSON object with this exact structure:
                 items: {
                   type: Type.OBJECT,
                   properties: {
+                    original: { type: Type.STRING },
                     translation: { type: Type.STRING },
                     box: { type: Type.ARRAY, items: { type: Type.INTEGER } }
                   },
-                  required: ["translation", "box"]
+                  required: ["original", "translation", "box"]
                 }
               },
               category: { type: Type.STRING },
