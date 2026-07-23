@@ -142,7 +142,7 @@ Pronunciation Guide Rules:
             }
 
             const responseStream = await fetchWithBackoff(() => ai.models.generateContentStream({
-              model: "gemini-3.5-flash",
+              model: "gemini-3.6-flash",
               config: {
                 systemInstruction: systemPrompt,
                 responseMimeType: "application/json"
@@ -370,7 +370,7 @@ Pronunciation Guide Rules:
             }
 
             responseStream = await fetchWithBackoff(() => ai.models.generateContentStream({
-              model: "gemini-3.5-flash",
+              model: "gemini-3.6-flash",
               config: {
                 systemInstruction: systemPrompt,
                 responseMimeType: "application/json"
@@ -485,7 +485,7 @@ Pronunciation Guide Rules:
                  const ai = getAi();
                  const fixPrompt = `다음 한국어 문장은 음성 인식된 결과입니다. 문맥을 고려하여 명백한 오타나 인식 오류를 자연스럽게 수정해주세요.\n조건:\n- 어떠한 부가 설명이나 인사말 없이 오직 수정된 텍스트만 출력하세요.\n- 수정할 부분이 없으면 원래 텍스트를 그대로 출력하세요.\n\n텍스트: ${finalTranscription}`;
                  const res = await ai.models.generateContent({
-                   model: "gemini-3.5-flash",
+                   model: "gemini-3.6-flash",
                    contents: [{ role: "user", parts: [{ text: fixPrompt }] }]
                  });
                  const corrected = res.text?.trim();
@@ -569,7 +569,7 @@ Return a strict JSON object with this exact structure:
 }`;
 
       const response = await fetchWithBackoff(() => ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-3.6-flash",
         contents: [{
           role: "user",
           parts: [
@@ -690,7 +690,7 @@ Return a strict JSON object with this exact structure:
 }`;
 
       const response = await fetchWithBackoff(() => ai.models.generateContent({
-        model: "gemini-3.5-flash",
+        model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
         config: {
           responseMimeType: "application/json"
