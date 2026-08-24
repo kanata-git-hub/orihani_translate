@@ -79,7 +79,11 @@ async function startServer() {
             "en": "English",
             "ja": "Japanese",
             "es": "Spanish",
-            "zh": "Chinese"
+            "zh": "Chinese",
+            "fr": "French",
+            "de": "German",
+            "it": "Italian",
+            "nl": "Dutch"
           };
           const rawTarget = msg.targetLanguageCode || "Korean";
           const targetLang = codeMap[rawTarget.toLowerCase()] || rawTarget;
@@ -304,7 +308,11 @@ Pronunciation Guide Rules:
             "en": "English",
             "ja": "Japanese",
             "es": "Spanish",
-            "zh": "Chinese"
+            "zh": "Chinese",
+            "fr": "French",
+            "de": "German",
+            "it": "Italian",
+            "nl": "Dutch"
           };
           const rawTarget = msg.targetLanguageCode || "Korean";
           const targetLang = codeMap[rawTarget.toLowerCase()] || rawTarget;

@@ -17,7 +17,11 @@ export function LocalSmartSearchModal({ isOpen, onClose, targetLanguageCode }: L
     "en": "English",
     "ja": "Japanese",
     "es": "Spanish",
-    "zh": "Chinese"
+    "zh": "Chinese",
+    "fr": "French",
+    "de": "German",
+    "it": "Italian",
+    "nl": "Dutch"
   };
   const targetLanguageName = codeMap[targetLanguageCode.toLowerCase()] || "English";
 

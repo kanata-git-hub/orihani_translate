@@ -38,5 +38,37 @@ export const LOCALIZATION: Record<string, { idle: string; listening: string; tra
     title: "✨ Ori Guide",
     typeHere: "Escriba aquí...",
     send: "Enviar"
+  },
+  fr: {
+    idle: "Touchez le micro en haut pour parler.\nCe sera traduit en coréen.",
+    listening: "Écoute en cours (Touchez à nouveau pour terminer)...",
+    translating: "Traduction en cours...",
+    title: "✨ Ori Guide",
+    typeHere: "Tapez ici...",
+    send: "Envoyer"
+  },
+  de: {
+    idle: "Tippen Sie oben auf das Mikrofon, um zu sprechen.\nEs wird ins Koreanische übersetzt.",
+    listening: "Hört zu (Erneut tippen, um zu beenden)...",
+    translating: "Übersetzen...",
+    title: "✨ Ori Guide",
+    typeHere: "Hier tippen...",
+    send: "Senden"
+  },
+  it: {
+    idle: "Tocca il microfono in alto per parlare.\nSarà tradotto in coreano.",
+    listening: "In ascolto (Tocca di nuovo per terminare)...",
+    translating: "Traduzione...",
+    title: "✨ Ori Guide",
+    typeHere: "Scrivi qui...",
+    send: "Invia"
+  },
+  nl: {
+    idle: "Tik op de bovenste microfoon om te spreken.\nHet wordt vertaald naar het Koreaans.",
+    listening: "Luisteren (Tik nogmaals om te voltooien)...",
+    translating: "Vertalen...",
+    title: "✨ Ori Guide",
+    typeHere: "Typ hier...",
+    send: "Verzenden"
   }
 };

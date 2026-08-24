@@ -186,7 +186,16 @@ export default function App() {
             setProcessingRole(null);
             if (msg.error === "NO_SPEECH_DETECTED") {
               if (msg.role === "foreigner") {
-                const guide = foreignerLang === "ja" ? "⚠️ 音声が検出されませんでした。もう一度お話しください。" : foreignerLang === "zh" ? "⚠️ 未检测到语音。请再试一次。" : foreignerLang === "es" ? "⚠️ No se detectó voz. Por favor, inténtelo de nuevo." : "⚠️ No speech detected. Please try again.";
+                let guide = "⚠️ No speech detected. Please try again.";
+                switch(foreignerLang) {
+                  case "ja": guide = "⚠️ 音声が検出されませんでした。もう一度お話しください。"; break;
+                  case "zh": guide = "⚠️ 未检测到语音。请再试一次。"; break;
+                  case "es": guide = "⚠️ No se detectó voz. Por favor, inténtelo de nuevo."; break;
+                  case "fr": guide = "⚠️ Aucune voix détectée. Veuillez réessayer."; break;
+                  case "de": guide = "⚠️ Keine Stimme erkannt. Bitte versuchen Sie es erneut."; break;
+                  case "it": guide = "⚠️ Nessuna voce rilevata. Per favore, riprova."; break;
+                  case "nl": guide = "⚠️ Geen spraak gedetecteerd. Probeer het opnieuw."; break;
+                }
                 setForeignerText(guide);
               } else {
                 setUserText("⚠️ 음성이 감지되지 않았습니다. 조금 더 크고 명확하게 말씀해주세요.");

@@ -68,6 +68,10 @@ export const ForeignerPanel: React.FC<ForeignerPanelProps> = ({
                 <option value="ja" className="text-black">일본어 日本語</option>
                 <option value="es" className="text-black">스페인어 Español</option>
                 <option value="zh" className="text-black">중국어 中文</option>
+                <option value="fr" className="text-black">프랑스어 Français</option>
+                <option value="de" className="text-black">독일어 Deutsch</option>
+                <option value="it" className="text-black">이탈리아어 Italiano</option>
+                <option value="nl" className="text-black">네덜란드어 Nederlands</option>
               </select>
             </div>
             <button 
