@@ -3,15 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { loginWithGoogle, logout } from '../lib/firebaseUtils';
 
-export default function HomePage() {
+export default function HomePage({ sharedPost = false }: { sharedPost?: boolean }) {
   const { user, isAdmin, isApproved } = useAuth();
   const navigate = useNavigate();
 
   React.useEffect(() => {
-    if (user && isApproved) {
+    if (user && isApproved && !sharedPost) {
       navigate('/app');
     }
-  }, [user, isApproved, navigate]);
+  }, [user, isApproved, navigate, sharedPost]);
 
   const handleLogin = async () => {
     try {
@@ -37,6 +37,7 @@ export default function HomePage() {
           <img src="/icon.png" alt="App Icon" className="w-40 h-40 mx-auto mb-10 rounded-3xl shadow-2xl border-4 border-white/10 object-cover bg-white" />
           <h1 className="text-4xl font-bold mb-4 tracking-tight">실시간 통역 앱</h1>
           <p className="text-[#ffcd4a] mb-12 font-medium text-lg text-center">구글로 로그인하여 통역기능 사용</p>
+          {sharedPost && <p className="mb-8 text-center text-sm text-white/90">공유한 만화는 로그인 후 이어서 열어요.</p>}
         </div>
         
         <div className="w-full mt-auto">
