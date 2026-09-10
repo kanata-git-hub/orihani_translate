@@ -6,8 +6,7 @@ import { fileURLToPath } from "url";
 import http from "http";
 import dotenv from "dotenv";
 import { WebSocketServer, WebSocket } from "ws";
-import { createHash, timingSafeEqual } from "node:crypto";
-import { GoogleGenAI, Type, ThinkingLevel } from "@google/genai";
+import { GoogleGenAI, Type } from "@google/genai";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,22 +14,6 @@ const __dirname = path.dirname(__filename);
 dotenv.config();
 
 let aiClient: GoogleGenAI | null = null;
-
-// Temporary, expiring comparison; the normal app continues using its existing model.
-// Only the local evaluator has the random token. Remove after recording the results.
-const trialTokenHash = Buffer.from("af2052ed967bce3772c3e8077cc9f8af047ed06b59c7a3a075a5b874356d4ce5", "hex");
-const trialExpiresAt = 1789065836807;
-let trialRequests = 0;
-function authorizeVoiceTrial(trial: any, audio: unknown): string | null {
-  if (Date.now() >= trialExpiresAt || trialRequests >= 40 ||
-      typeof trial?.token !== "string" || trial.token.length !== 64 ||
-      typeof audio !== "string" || audio.length > 1000000 ||
-      !["gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash"].includes(trial?.model)) return null;
-  const hash = createHash("sha256").update(trial.token).digest();
-  if (!timingSafeEqual(hash, trialTokenHash)) return null;
-  trialRequests++;
-  return trial.model;
-}
 
 function getAi(): GoogleGenAI {
   if (!aiClient) {
@@ -87,11 +70,6 @@ async function startServer() {
       sessions.set(clientWs, state);
 
       if (msg.type === "process_audio") {
-        const trialModel = msg.modelTrial ? authorizeVoiceTrial(msg.modelTrial, msg.audio) : null;
-        if (msg.modelTrial && !trialModel) {
-          clientWs.send(JSON.stringify({ error: "MODEL_TRIAL_DENIED", role: msg.role, turnComplete: true }));
-          return;
-        }
         state.processPromise = state.processPromise.then(async () => {
           if (state?.session) {
             state.session = null;
@@ -168,16 +146,11 @@ Pronunciation Guide Rules:
                systemPrompt += `\n----------------------------\nEnsure the translation flows naturally as a realistic dialogue response based on this context.`;
             }
 
-            const trialMetrics: any = trialModel ? {
-              requestedModel: trialModel, thinkingLevel: "medium", ttsModel: "gemini-3.1-flash-tts-preview"
-            } : null;
-            const translationStarted = performance.now();
             const responseStream = await fetchWithBackoff(() => ai.models.generateContentStream({
-              model: trialModel || "gemini-3.6-flash",
+              model: "gemini-3.6-flash",
               config: {
                 systemInstruction: systemPrompt,
-                responseMimeType: "application/json",
-                ...(trialModel ? { thinkingConfig: { thinkingLevel: ThinkingLevel.MEDIUM } } : {})
+                responseMimeType: "application/json"
               },
               contents: [
                 {
@@ -230,11 +203,6 @@ Pronunciation Guide Rules:
             let detectedNoSpeech = false;
 
             for await (const chunk of responseStream) {
-              if (trialMetrics) {
-                trialMetrics.firstChunkMs ??= performance.now() - translationStarted;
-                if (chunk.modelVersion) trialMetrics.modelVersion = chunk.modelVersion;
-                if (chunk.usageMetadata) trialMetrics.usage = chunk.usageMetadata;
-              }
               bufferStr += chunk.text;
               
               if (bufferStr.includes('"NO_SPEECH_DETECTED"')) {
@@ -290,8 +258,6 @@ Pronunciation Guide Rules:
               }));
             }
 
-            if (trialMetrics) trialMetrics.translationCompleteMs = performance.now() - translationStarted;
-
             if (detectedNoSpeech) {
               clientWs.send(JSON.stringify({
                 error: "NO_SPEECH_DETECTED",
@@ -329,7 +295,6 @@ Pronunciation Guide Rules:
               inputTranscription: finalTrans.trim(),
               outputTranscription: finalTransl.trim(),
               outputPronunciation: finalPronun.trim(),
-              ...(trialMetrics ? { metrics: trialMetrics } : {}),
               turnComplete: true
             }));
 
