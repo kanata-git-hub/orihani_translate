@@ -1,4 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { extractChiikawaPost } from '../utils/chiikawaShare';
+import { ChiikawaShareGuide } from './ChiikawaShareGuide';
 import { X, Loader2, ExternalLink } from 'lucide-react';
 
 export function UsagiIcon() {
@@ -13,7 +15,7 @@ function recentPhotos(): ImportedPhoto[] {
     return Array.isArray(data) ? data.filter((p: any) => /^\d{10,25}$/.test(p.postId) && Number.isInteger(p.index) && p.index >= 0 && p.index < 4).slice(0, 9).map((p: any) => ({ postId: p.postId, index: p.index, postUrl: `https://x.com/ngnchiikawa/status/${p.postId}/photo/${p.index + 1}`, thumbnailUrl: `/api/chiikawa/public-image/${p.postId}/${p.index}?size=thumb`, createdAt: typeof p.createdAt === 'string' ? p.createdAt : '' })) : [];
   } catch { return []; }
 }
-export function ChiikawaGallery({ onClose, onSelect }: { onClose: () => void; onSelect: (file: File) => void }) {
+export function ChiikawaGallery({ onClose, onSelect, initialShare }: { onClose: () => void; onSelect: (file: File) => void; initialShare?: { link: string; error: string } | null }) {
   const [photos, setPhotos] = useState<ImportedPhoto[]>(recentPhotos);
   const [postPhotos, setPostPhotos] = useState<ImportedPhoto[]>([]);
   const [link, setLink] = useState('');
@@ -46,21 +48,32 @@ export function ChiikawaGallery({ onClose, onSelect }: { onClose: () => void; on
       if (signal.aborted) return;
       onSelect(new File([blob], `chiikawa-${photo.postId}-${photo.index + 1}`, { type: blob.type }));
     } catch (err) { if (!signal?.aborted) setError(err instanceof Error ? err.message : '사진을 불러오지 못했어요.'); }
-    finally { setSelecting(null); }
+    finally { if (request.current?.signal === signal) setSelecting(null); }
   };
-  const importPost = async (value: string) => {
-    if (busy || selecting) return;
-    if (!value.trim()) { setError('X에서 게시물의 공유 버튼을 눌러 링크를 복사한 뒤 붙여넣어 주세요.'); return; }
+  const importPost = async (value: string, replace = false) => {
+    if ((busy || selecting) && !replace) return;
+    const postUrl = extractChiikawaPost([value]);
+    if (!postUrl) { setError('@ngnchiikawa의 사진이 있는 게시물 링크를 공유하거나 붙여넣어 주세요.'); return; }
+    setLink(postUrl);
     request.current?.abort(); const controller = new AbortController(); request.current = controller;
-    setBusy(true); setError(''); setPostPhotos([]);
+    setBusy(true); setSelecting(null); setError(''); setPostPhotos([]);
     try {
-      const res = await fetch(`/api/chiikawa/post?url=${encodeURIComponent(value.trim())}`, { signal: controller.signal });
+      const res = await fetch(`/api/chiikawa/post?url=${encodeURIComponent(postUrl)}`, { signal: controller.signal });
       const data = await res.json(); if (!res.ok) throw new Error(data.error || '게시물을 불러오지 못했어요.');
+      if (controller.signal.aborted) return;
       remember(data.photos); setPostPhotos(data.photos);
       if (data.selectedIndex !== undefined || data.photos.length === 1) await select(data.photos[data.selectedIndex ?? 0], controller.signal);
     } catch (err) { if (!controller.signal.aborted) setError(err instanceof Error ? err.message : '게시물을 불러오지 못했어요.'); }
     finally { if (!controller.signal.aborted) setBusy(false); }
   };
+  useEffect(() => {
+    if (!initialShare) return;
+    setLink(initialShare.link);
+    if (initialShare.error) { setError(initialShare.error); return; }
+    // Defer one tick so StrictMode's trial mount can cancel before any request.
+    const timer = window.setTimeout(() => { void importPost(initialShare.link, true); }, 0);
+    return () => { window.clearTimeout(timer); request.current?.abort(); };
+  }, [initialShare]);
   const paste = async () => {
     try { const text = await navigator.clipboard.readText(); setLink(text); await importPost(text); }
     catch { setError('링크 입력칸을 길게 눌러 붙여넣은 뒤 불러오기를 눌러 주세요.'); }
@@ -71,11 +84,12 @@ export function ChiikawaGallery({ onClose, onSelect }: { onClose: () => void; on
     <section role="dialog" aria-modal="true" aria-label="치이카와 만화 번역" className="w-full max-w-lg max-h-[94dvh] overflow-auto bg-[#fffdf5] text-[#552c24] rounded-3xl shadow-xl">
       <header className="sticky top-0 z-10 bg-[#fffdf5] flex items-center gap-2 p-4 border-b border-[#552c24]/10"><UsagiIcon/><h2 className="font-bold text-lg flex-1">치이카와 만화 번역</h2><button aria-label="닫기" onClick={onClose} className="p-2"><X size={22}/></button></header>
       <div className="p-4 space-y-4">
-        <p className="text-sm leading-relaxed">게시물 링크만 가져오면 사진 저장 없이 바로 번역해요.</p>
+        <p className="text-sm leading-relaxed">X의 공유 메뉴에서 보내면 사진 저장 없이 바로 번역해요. 사진이 여러 장이면 원하는 사진을 골라 주세요.</p>
         <a href="https://x.com/ngnchiikawa/media?filter=photo" target="_blank" rel="noreferrer" className="flex justify-center items-center gap-2 border border-[#552c24]/20 rounded-xl p-3 font-bold">작가의 만화 찾기 <ExternalLink size={16}/></a>
+        <ChiikawaShareGuide />
         <form onSubmit={event => { event.preventDefault(); void importPost(link); }} className="rounded-2xl bg-[#ffcd4a]/15 p-3 space-y-3">
           <label htmlFor="chiikawa-post-link" className="block text-sm font-bold">X 게시물 링크</label>
-          <div className="flex gap-2"><input id="chiikawa-post-link" type="url" value={link} onChange={e => setLink(e.target.value)} placeholder="https://x.com/ngnchiikawa/status/…" autoComplete="off" className="min-w-0 w-full rounded-xl border border-[#552c24]/20 bg-white p-2 text-base"/><button type="submit" disabled={disabled} className="shrink-0 rounded-xl bg-[#552c24] text-white px-3 disabled:opacity-50">불러오기</button></div>
+          <div className="flex gap-2"><input id="chiikawa-post-link" type="text" inputMode="url" value={link} onChange={e => setLink(e.target.value)} placeholder="https://x.com/ngnchiikawa/status/…" autoComplete="off" className="min-w-0 w-full rounded-xl border border-[#552c24]/20 bg-white p-2 text-base"/><button type="submit" disabled={disabled} className="shrink-0 rounded-xl bg-[#552c24] text-white px-3 disabled:opacity-50">불러오기</button></div>
           <button type="button" onClick={() => void paste()} disabled={disabled} className="w-full rounded-xl bg-[#ffcd4a] p-3 font-bold disabled:opacity-50">복사한 링크 붙여넣어 번역</button>
           <p className="text-xs leading-relaxed opacity-75">X 게시물에서 공유 → 링크 복사. 사진이 여러 장이면 번역할 사진을 골라 주세요.</p>
         </form>
