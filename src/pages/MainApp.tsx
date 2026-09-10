@@ -1,4 +1,4 @@
-import { ChiikawaGallery } from '../components/ChiikawaGallery';
+
 import React, { useState, useRef, useEffect } from 'react';
 import { Mic, Square, Languages, Volume2, VolumeX, Loader2, LogOut, Shield, HelpCircle, X, Pencil, Send, RotateCcw, Camera, Compass } from 'lucide-react';
 import { playAudioChunk, resetAudioQueue, setHoldPlayback } from '../audio';
@@ -69,7 +69,7 @@ export default function App() {
   const [playingTTS, setPlayingTTS] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [isFirstVisit, setIsFirstVisit] = useState(false);
-  const [showChiikawa, setShowChiikawa] = useState(false);
+
   const [showImageModal, setShowImageModal] = useState(false);
   const [showDocumentModal, setShowDocumentModal] = useState(false);
   const [showSmartSearch, setShowSmartSearch] = useState(false);
@@ -663,7 +663,7 @@ export default function App() {
         imageInputForeignerRef={imageInputForeignerRef}
         handleImageChange={handleImageChange}
         audioLevels={audioLevels}
-        onOpenChiikawa={() => setShowChiikawa(true)}
+        onOpenChiikawa={() => window.open("https://x.com/ngnchiikawa/media?filter=photo", "_blank", "noopener,noreferrer")}
       />
 
       {/* Divider */}
@@ -698,7 +698,7 @@ export default function App() {
         handleCaptureAndDownload={handleCaptureAndDownload}
         isCapturing={isCapturing}
         audioLevels={audioLevels}
-        onOpenChiikawa={() => setShowChiikawa(true)}
+        onOpenChiikawa={() => window.open("https://x.com/ngnchiikawa/media?filter=photo", "_blank", "noopener,noreferrer")}
       />
 
       {/* Help Modal */}
@@ -710,10 +710,7 @@ export default function App() {
         targetLanguageCode={foreignerLang}
       />
 
-      {showChiikawa && <ChiikawaGallery onClose={() => setShowChiikawa(false)} onSelect={file => {
-        if (activeMic) stopRecording();
-        setImageTargetLang('Korean'); setImageFile(file); setShowChiikawa(false); setShowImageModal(true);
-      }} />}
+
 
       <ImageTranslateModal 
         isOpen={showImageModal} 
