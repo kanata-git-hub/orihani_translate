@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 import { registerChiikawa } from '../chiikawa.ts';
-import { validBox, eraseTextInk, fitInPolygon, lineSpan, insidePolygon } from '../src/utils/imageLayout.ts';
+import { validBox, refineImageLayout, eraseTextInk, fitInPolygon, lineSpan, insidePolygon } from '../src/utils/imageLayout.ts';
 import { playAudioChunk, resetAudioQueue, setHoldPlayback } from '../src/audio.ts';
 
 test('recording clears playing and scheduled audio; held audio stays silent', () => {
@@ -107,4 +107,18 @@ test('gallery filters photos, sorts newest first, limits to nine, and shares cac
     if (previous === undefined) delete process.env.X_BEARER_TOKEN; else process.env.X_BEARER_TOKEN = previous;
     await new Promise<void>(resolve => server.close(() => resolve()));
   }
+});
+
+
+test('coarse text boxes preserve an enclosed colored character and its eyes', () => {
+  const w=100,h=100,p=new Uint8ClampedArray(w*h*4).fill(255);
+  const set=(x:number,y:number,c:number[])=>p.set([...c,255],(y*w+x)*4);
+  for(let y=10;y<16;y++)for(let x=15;x<19;x++)set(x,y,[0,0,0]);
+  for(let x=35;x<=65;x++){set(x,35,[0,0,0]);set(x,65,[0,0,0]);}
+  for(let y=35;y<=65;y++){set(35,y,[0,0,0]);set(65,y,[0,0,0]);}
+  for(let y=45;y<49;y++)for(let x=42;x<46;x++)set(x,y,[0,0,0]);
+  for(let y=53;y<58;y++)for(let x=40;x<47;x++)set(x,y,[240,150,170]);
+  const result=refineImageLayout(p,w,h,[{original:'あいう',translation:'안녕',box:[80,100,680,680]}]);
+  assert.equal(result.pixels[(12*w+16)*4],255);
+  for(let y=35;y<=65;y++)for(let x=35;x<=65;x++)assert.deepEqual(result.pixels.slice((y*w+x)*4,(y*w+x)*4+4),p.slice((y*w+x)*4,(y*w+x)*4+4));
 });
