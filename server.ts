@@ -1,3 +1,4 @@
+import { registerChiikawa } from './chiikawa.ts';
 import express from "express";
 import cors from "cors";
 import path from "path";
@@ -227,7 +228,7 @@ Pronunciation Guide Rules:
 
               if (newlyTranslated) {
                 unprocessedTranslationBuffer += newlyTranslated;
-                const boundaryRegex = /([.?!。！？]+)(?:\s+|\n+)/;
+                const boundaryRegex = /([。！？]+|[.?!]+(?=\s))/;
                 while (true) {
                   const match = boundaryRegex.exec(unprocessedTranslationBuffer);
                   if (match) {
@@ -241,6 +242,11 @@ Pronunciation Guide Rules:
                     break;
                   }
                 }
+              }
+
+              if (/"translation"\s*:\s*"(?:[^"\\]|\\.)*"/.test(bufferStr) && unprocessedTranslationBuffer.trim()) {
+                queueTts(unprocessedTranslationBuffer.trim());
+                unprocessedTranslationBuffer = "";
               }
 
               clientWs.send(JSON.stringify({
@@ -449,7 +455,7 @@ Pronunciation Guide Rules:
             
             if (newlyTranslated) {
               unprocessedTranslationBuffer += newlyTranslated;
-              const boundaryRegex = /([.?!。！？]+)(?:\s+|\n+)/;
+              const boundaryRegex = /([。！？]+|[.?!]+(?=\s))/;
               while (true) {
                 const match = boundaryRegex.exec(unprocessedTranslationBuffer);
                 if (match) {
@@ -520,6 +526,7 @@ Pronunciation Guide Rules:
     });
   });
 
+  registerChiikawa(app);
   app.use(cors());
   app.use(express.json({ limit: "50mb" }));
 
@@ -541,6 +548,10 @@ TASK 1: EXHAUSTIVE OCR & TRANSLATION (CRITICAL)
 - The translation MUST sound completely natural to a native speaker of the target language (${targetLang}) (e.g., Japanese for Japanese, Korean for Korean, American for English, etc.). Ensure the tone, phrasing, grammar, and vocabulary are localized and authentic. You MUST completely rewrite the sentence to fit the natural grammar and expressions of the target language, avoiding literal or word-for-word translations.
 - If the target language is Korean, you MUST translate like a professional human translator (전문 번역가). Completely eliminate unnatural "translationese" (번역투) and excessive passive voice (피동 표현). Instead of literal structures like "~한다고 알려져 있다", "~의 증가가 확인되었다", or "~하다고 여겨진다", you MUST proactively rephrase sentences into active, natural Korean structures (e.g., "~라고 합니다", "증가했습니다", "~라고 생각합니다"). Adjust particles (조사, e.g., 은/는/이/가/을/를), word order, and verbs to flow perfectly and idiomatically as if originally written in Korean. Do not just replace words; restructure the entire sentence if necessary to ensure the highest translation quality.
 - For each paragraph block, provide the \`[ymin, xmin, ymax, xmax]\` coordinates normalized from 0 to 1000 representing the bounding box encompassing the entire paragraph in the original image.
+- The box MUST tightly enclose only the original text, never enlarge it to fit the translation. Never merge separate speech balloons, panels, captions or signs.
+- For every block provide text_regions: tight rectangles for each original text line/column, in [ymin,xmin,ymax,xmax] coordinates. Include all original glyphs and a tiny background margin, but NEVER include a face, character, speech-balloon outline, panel border, or object outline. Use separate rectangles when artwork separates words. These regions erase the original ink, so precision matters more than combining regions.
+- Also provide layout_polygon: 4 to 16 ordered [y,x] points tracing the usable interior of that SAME speech balloon or caption, inset from its outline. This is where translated text will be typeset; it may use empty space around the original text but MUST exclude the balloon tail, faces, characters, props, panel borders, and neighboring balloons. It must be a simple polygon without crossed edges. For labels on objects and sound effects without a balloon, closely trace their original text region instead of borrowing space from nearby artwork.
+- The translated text must remain at its original location. Do not add reference numbers, footnotes, summaries or separate translation lists. Preserve meaning, emotional tone and punctuation; do not shorten by dropping content just to fit.
 - IMPORTANT: Your output MUST be strictly valid JSON. Ensure all double quotes inside strings are escaped as \\\". Ensure all newlines inside strings are escaped as \\n. Do not include trailing commas.
 
 TASK 2: CONTEXT ANALYSIS
@@ -564,7 +575,7 @@ Extract relevant data for any of the fields below that are applicable to the ima
 Return a strict JSON object with this exact structure:
 {
   "blocks": [
-    { "original": "string", "translation": "string", "box": [number, number, number, number] }
+    { "original": "string", "translation": "string", "box": [number, number, number, number], "text_regions": [[number, number, number, number]], "layout_polygon": [[number, number]] }
   ],
   "category": "string",
   "extracted_data": {
@@ -599,9 +610,11 @@ Return a strict JSON object with this exact structure:
                   properties: {
                     original: { type: Type.STRING },
                     translation: { type: Type.STRING },
-                    box: { type: Type.ARRAY, items: { type: Type.INTEGER } }
+                    box: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+                    text_regions: { type: Type.ARRAY, items: { type: Type.ARRAY, items: { type: Type.INTEGER } } },
+                    layout_polygon: { type: Type.ARRAY, items: { type: Type.ARRAY, items: { type: Type.INTEGER } } }
                   },
-                  required: ["original", "translation", "box"]
+                  required: ["original", "translation", "box", "text_regions", "layout_polygon"]
                 }
               },
               category: { type: Type.STRING },
@@ -619,7 +632,7 @@ Return a strict JSON object with this exact structure:
             },
             required: ["blocks", "category", "extracted_data"]
           },
-          maxOutputTokens: 8192
+          maxOutputTokens: 16384
         }
       }));
 
