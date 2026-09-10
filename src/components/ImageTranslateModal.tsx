@@ -1,13 +1,9 @@
-import React, { useState, useRef, useEffect, useLayoutEffect, startTransition } from 'react';
+import React, { useState, useRef, useEffect, startTransition } from 'react';
 import { X, Loader2, Download, Copy, Check, Calculator, Map, Search, AlignLeft, Info, Lightbulb } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { domToJpeg } from 'modern-screenshot';
 
-interface TextBlock {
-  original: string;
-  translation: string;
-  box: [number, number, number, number]; // ymin, xmin, ymax, xmax (0-1000)
-}
+
+import { composeTranslation, validBox, type TextBlock } from '../utils/imageLayout';
 
 interface ExtractedData {
   amount?: number | null;
@@ -24,80 +20,6 @@ interface ImageTranslateModalProps {
   file: File | null;
 }
 
-const FontAdjustableText = ({ text, box, onClick }: { text: string, box: number[], onClick?: () => void }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const textRef = useRef<HTMLDivElement>(null);
-  const [fontSize, setFontSize] = useState<number>(0);
-
-  useLayoutEffect(() => {
-    const container = containerRef.current;
-    const textNode = textRef.current;
-    if (!container || !textNode) return;
-
-    const updateFontSize = () => {
-      let min = 2;
-      let max = 400;
-      let best = 2;
-
-      const computedStyle = window.getComputedStyle(container);
-      const paddingY = parseFloat(computedStyle.paddingTop) + parseFloat(computedStyle.paddingBottom);
-      const paddingX = parseFloat(computedStyle.paddingLeft) + parseFloat(computedStyle.paddingRight);
-
-      const maxHeight = container.clientHeight - paddingY;
-      const maxWidth = container.clientWidth - paddingX;
-
-      for (let i = 0; i < 15; i++) {
-        const mid = (min + max) / 2;
-        textNode.style.fontSize = `${mid}px`;
-        
-        // Check if text is overflowing its container content box
-        if (textNode.scrollHeight > maxHeight || textNode.scrollWidth > maxWidth) {
-          max = mid;
-        } else {
-          best = mid;
-          min = mid;
-        }
-      }
-      // Apply a small safety margin (5% smaller) to prevent edge-case overflow across browsers
-      setFontSize(Math.max(2, best * 0.95));
-    };
-
-    // Delay slightly to ensure fonts are loaded
-    const timeout = setTimeout(updateFontSize, 50);
-
-    const observer = new ResizeObserver(() => updateFontSize());
-    observer.observe(container);
-    return () => {
-      clearTimeout(timeout);
-      observer.disconnect();
-    };
-  }, [text]);
-
-  return (
-    <div 
-      ref={containerRef}
-      className="w-full h-full flex flex-col items-center justify-center relative cursor-pointer rounded-sm overflow-hidden bg-white hover:bg-gray-50 transition-colors p-0.5 sm:p-1"
-      onClick={onClick}
-    >
-      <div 
-        ref={textRef}
-        className="text-[#3a1d17] font-bold w-full h-auto"
-        style={{ 
-          fontSize: fontSize ? `${fontSize}px` : '2px',
-          lineHeight: 1.15,
-          wordBreak: 'keep-all',
-          overflowWrap: 'break-word',
-          letterSpacing: '-0.02em',
-          whiteSpace: 'pre-wrap',
-          opacity: fontSize ? 1 : 0,
-        }}
-      >
-        {text}
-      </div>
-    </div>
-  );
-};
-
 export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: ImageTranslateModalProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -112,7 +34,21 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
   const [viewMode, setViewMode] = useState<'original' | 'image' | 'text'>('image');
   const [copiedIndex, setCopiedIndex] = useState<number | 'all' | null>(null);
   
-  const containerRef = useRef<HTMLDivElement>(null);
+  const [renderedImage, setRenderedImage] = useState<{ url: string; file: File; sourceAspect: number } | null>(null);
+  useEffect(() => {
+    setRenderedImage(null);
+    if (!isOpen || loading || !imageSrc) return;
+    let cancelled = false;
+    let url: string | undefined;
+    const original = new Image();
+    original.src = imageSrc;
+    original.decode().then(() => composeTranslation(imageSrc, blocks)).then(blob => {
+      if (cancelled) return;
+      url = URL.createObjectURL(blob);
+      setRenderedImage({ url, file: new File([blob], `translated_${Date.now()}.png`, { type: 'image/png' }), sourceAspect: original.naturalWidth / original.naturalHeight });
+    }).catch(() => { if (!cancelled) setError('번역 이미지 생성에 실패했습니다. 문자 탭에서 번역을 확인해 주세요.'); });
+    return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
+  }, [isOpen, loading, imageSrc, blocks]);
   const exportRef = useRef<HTMLDivElement>(null);
 
   const handleCopy = async (text: string, index: number | 'all') => {
@@ -126,29 +62,26 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
   };
 
   const handleSaveImage = async () => {
-    if (!exportRef.current) return;
+    if (!renderedImage) return;
+    setIsSaving(true);
+    setError('');
     try {
-      setIsSaving(true);
-      
-      // 화질을 높게 유지하기 위해 pixelRatio를 최소 2 이상으로 설정합니다.
-      const pixelRatio = Math.max(2, window.devicePixelRatio || 1);
-      
-      const dataUrl = await domToJpeg(exportRef.current, {
-        scale: pixelRatio,
-        backgroundColor: '#ffffff',
-        quality: 0.95
-      });
-      
-      const link = document.createElement('a');
-      link.download = `translated_${Date.now()}.jpg`;
-      link.href = dataUrl;
-      link.click();
+      // The file is prepared before the click, preserving Safari user activation.
+      if (navigator.canShare?.({ files: [renderedImage.file] })) {
+        await navigator.share({ files: [renderedImage.file] });
+      } else {
+        const link = document.createElement('a');
+        link.download = renderedImage.file.name;
+        link.href = renderedImage.url;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
     } catch (err) {
-      console.error('Save failed', err);
-      setError('이미지 저장에 실패했습니다: ' + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setIsSaving(false);
-    }
+      if (!(err instanceof DOMException && err.name === 'AbortError')) {
+        setError('저장이 지원되지 않으면 아래 이미지를 길게 눌러 저장해 주세요.');
+      }
+    } finally { setIsSaving(false); }
   };
 
   useEffect(() => {
@@ -176,6 +109,9 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
     // Safari html-to-image 호환성 및 메모리 문제(초고해상도 원본 렌더링 시 하얗게 나오는 현상)를 방지하기 위해,
     // 초기 원본 Data URL 렌더링을 생략하고, 워커에서 압축된 이미지만을 렌더링합니다.
     setLoading(true);
+    setBlocks([]);
+    setImageSrc(null);
+    setViewMode('image');
     setError('');
 
     const processImage = async () => {
@@ -446,7 +382,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
             className="relative w-full max-w-[95vw] lg:max-w-6xl h-full max-h-[95vh] bg-gray-50 rounded-3xl shadow-2xl flex flex-col overflow-hidden"
           >
             {/* Header */}
-            <div className="flex items-center justify-between px-4 py-3 border-b border-black/5 bg-white z-20">
+            <div className="flex flex-wrap gap-2 items-center justify-between px-4 py-3 border-b border-black/5 bg-white z-20">
               <div className="flex items-center gap-3">
                 <h2 className="text-lg font-bold text-[#552c24] whitespace-nowrap">이미지 번역</h2>
                 
@@ -478,7 +414,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                 {!loading && blocks.length > 0 && viewMode === 'image' && (
                   <button 
                     onClick={handleSaveImage}
-                    disabled={isSaving}
+                    disabled={isSaving || !renderedImage}
                     className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-black/5 transition-colors text-[#552c24] disabled:opacity-50"
                     title="이미지 저장"
                   >
@@ -495,9 +431,9 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
             </div>
 
         {/* Content */}
-        <div className="flex-1 overflow-hidden relative flex items-center justify-center bg-[#e5e5e5] z-10 w-full h-full">
+        <div className="flex-1 overflow-auto relative bg-[#e5e5e5] z-10 w-full min-h-0">
           <AnimatePresence>
-            {loading && (
+            {(loading || (viewMode === 'image' && imageSrc && !renderedImage && !error)) && (
               <motion.div 
                 key="loading-overlay"
                 initial={{ opacity: 0 }}
@@ -519,55 +455,27 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
           )}
 
           {imageSrc && (viewMode === 'image' || viewMode === 'original') && (
-            <div className="relative flex justify-center items-center w-full h-full p-2 md:p-6 min-h-0">
+            <div className="relative flex justify-center items-start w-full p-2 md:p-6">
               <div 
                 ref={exportRef}
-                className="relative inline-block max-w-full max-h-full shadow-lg rounded-xl"
+                className="relative inline-block max-w-full shadow-lg rounded-xl"
               >
                 <img 
-                  src={imageSrc} 
-                  alt="Original to translate" 
-                  className="block max-w-full max-h-full rounded-xl"
+                  src={viewMode === 'image' && renderedImage ? renderedImage.url : imageSrc}
+                  alt={viewMode === 'original' ? '번역 원본' : '번역 이미지'}
+                  onClick={event => {
+                    if (viewMode !== 'image' || !renderedImage) return;
+                    const rect = event.currentTarget.getBoundingClientRect();
+                    const x = (event.clientX - rect.left) / rect.width * 1000;
+                    const y = (event.clientY - rect.top) / rect.width * renderedImage.sourceAspect * 1000;
+                    const block = blocks.find(block => validBox(block.box) && y >= block.box[0] && y <= block.box[2] && x >= block.box[1] && x <= block.box[3]);
+                    if (block) setSelectedBlock(block);
+                  }}
+                  className="block max-w-full rounded-xl"
                   style={{ width: 'auto', height: 'auto' }}
                 />
                 
-                {blocks.length > 0 && viewMode === 'image' && (
-                  <div className="absolute inset-0">
-                    {blocks.map((block, idx) => {
-                      const [ymin, xmin, ymax, xmax] = block.box;
-                      const top = `${ymin / 10}%`;
-                      const left = `${xmin / 10}%`;
-                      const height = `${(ymax - ymin) / 10}%`;
-                      const width = `${(xmax - xmin) / 10}%`;
 
-                      return (
-                        <motion.div
-                          key={idx}
-                          className="absolute z-20"
-                          initial={{ opacity: 0 }}
-                          animate={{ opacity: loading ? 0 : 1 }}
-                          transition={{ 
-                            duration: 0.4, 
-                            delay: loading ? 0 : 0.1 + (idx * 0.03),
-                            ease: "easeOut" 
-                          }}
-                          style={{
-                            top,
-                            left,
-                            height,
-                            width,
-                            willChange: 'transform, opacity',
-                            transform: 'translateZ(0)',
-                          }}
-                        >
-                          <div className="absolute inset-0">
-                            <FontAdjustableText text={block.translation} box={block.box} onClick={() => setSelectedBlock(block)} />
-                          </div>
-                        </motion.div>
-                      );
-                    })}
-                  </div>
-                )}
               </div>
             </div>
           )}
