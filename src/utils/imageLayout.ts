@@ -143,11 +143,11 @@ export async function composeTranslation(src: string, blocks: TextBlock[]): Prom
   const data = ctx.getImageData(0, 0, width, height);
   const valid = blocks.filter(block => typeof block.translation === 'string' && block.translation.trim());
   if (valid.some(block => !validBox(block.box))) throw new Error('원문 위치를 다시 분석해야 합니다.');
-  const regions = valid.flatMap(block => block.text_regions?.length ? block.text_regions.filter(validBox) : [block.box]);
-  data.data.set(eraseTextInk(data.data, width, height, regions)); ctx.putImageData(data, 0, 0);
+  const refined = refineImageLayout(data.data, width, height, valid);
+  data.data.set(refined.pixels); ctx.putImageData(data, 0, 0);
   const font = (size: number) => `${size}px "KyoboHandwriting", sans-serif`;
-  for (const block of valid) {
-    const polygon = layoutPolygon(block, width, height);
+  for (const [index, block] of valid.entries()) {
+    const polygon = refined.polygons[index];
     const originalArea = (block.box[2] - block.box[0]) * height / 1000 * (block.box[3] - block.box[1]) * width / 1000;
     const originalSize = Math.sqrt(originalArea / Math.max(1, Array.from(block.original.replace(/\s/g, '')).length));
     const maxSize = Math.max(5, Math.min(width / 18, originalSize * 1.25));
@@ -158,4 +158,94 @@ export async function composeTranslation(src: string, blocks: TextBlock[]): Prom
     fitted.lines.forEach(line => ctx.fillText(line.text, line.x, line.y)); ctx.restore();
   }
   return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('이미지 저장 실패')), 'image/png'));
+}
+
+// Refine coarse AI coordinates against actual ink. Large connected contours are
+// artwork / balloon borders; they must neither be erased nor receive new text.
+export function refineImageLayout(pixels: Uint8ClampedArray, width: number, height: number, blocks: TextBlock[]) {
+  const labels = new Int32Array(width * height);
+  const components: { points: number[]; left: number; right: number; top: number; bottom: number }[] = [];
+  const dark = (p: number) => Math.max(pixels[p * 4], pixels[p * 4 + 1], pixels[p * 4 + 2]) < 190;
+  for (let p = 0; p < labels.length; p++) {
+    if (labels[p] || !dark(p)) continue;
+    const id = components.length + 1, points = [p]; labels[p] = id;
+    let left = p % width, right = left, top = Math.floor(p / width), bottom = top;
+    for (let k = 0; k < points.length; k++) {
+      const q = points[k], x = q % width, y = Math.floor(q / width);
+      left = Math.min(left, x); right = Math.max(right, x); top = Math.min(top, y); bottom = Math.max(bottom, y);
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        const nx = x + dx, ny = y + dy, n = ny * width + nx;
+        if (nx >= 0 && nx < width && ny >= 0 && ny < height && !labels[n] && dark(n)) { labels[n] = id; points.push(n); }
+      }
+    }
+    components.push({points, left, right, top, bottom});
+  }
+  const backgroundLabels = new Int32Array(width * height);
+  const isPaper = (p: number) => Math.min(pixels[p*4],pixels[p*4+1],pixels[p*4+2]) > 205 && Math.max(pixels[p*4],pixels[p*4+1],pixels[p*4+2])-Math.min(pixels[p*4],pixels[p*4+1],pixels[p*4+2]) < 35;
+  let backgroundId=0;
+  for(let p=0;p<labels.length;p++) {
+    if(backgroundLabels[p]||!isPaper(p))continue;
+    backgroundId++;const queue=[p];backgroundLabels[p]=backgroundId;
+    for(let k=0;k<queue.length;k++) {
+      const q=queue[k],x=q%width,y=Math.floor(q/width);
+      for(const [dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]) {
+        const nx=x+dx,ny=y+dy,n=ny*width+nx;
+        if(nx>=0&&nx<width&&ny>=0&&ny<height&&!backgroundLabels[n]&&isPaper(n)){backgroundLabels[n]=backgroundId;queue.push(n);}
+      }
+    }
+  }
+  const erase = new Uint8Array(width * height);
+  const regions: Box[] = [];
+  for (const block of blocks) {
+    const [y0,x0,y1,x1] = block.box;
+    const glyph = Math.max(8, Math.sqrt((y1-y0)*height/1000*(x1-x0)*width/1000/Math.max(1,Array.from(block.original.replace(/\s/g,'')).length)));
+    const margin = Math.min(36, glyph * 1.4);
+    const votes=new Map<number,number>();
+    for(let y=Math.floor(y0*height/1000);y<y1*height/1000;y+=2)for(let x=Math.floor(x0*width/1000);x<x1*width/1000;x+=2){const id=backgroundLabels[y*width+x];if(id)votes.set(id,(votes.get(id)||0)+1);}
+    const paperId=[...votes].sort((a,b)=>b[1]-a[1])[0]?.[0];
+    const l=x0*width/1000-margin,r=x1*width/1000+margin,t=y0*height/1000-margin,b=y1*height/1000+margin;
+    for (const c of components) {
+      const cx=(c.left+c.right)/2,cy=(c.top+c.bottom)/2;
+      if(cx<l||cx>r||cy<t||cy>b||c.right-c.left>glyph*2.2||c.bottom-c.top>glyph*2.2) continue;
+      if(paperId && !c.points.some(p => [[-2,0],[2,0],[0,-2],[0,2]].some(([dx,dy])=>{const x=p%width+dx,y=Math.floor(p/width)+dy;return x>=0&&x<width&&y>=0&&y<height&&backgroundLabels[y*width+x]===paperId;})))continue;
+      if(c.points.some(p=>Math.max(pixels[p*4],pixels[p*4+1],pixels[p*4+2])-Math.min(pixels[p*4],pixels[p*4+1],pixels[p*4+2])>40))continue;
+      let enclosedColor=0;
+      for(let y=c.top;y<=c.bottom;y++)for(let x=c.left;x<=c.right;x++){const i=(y*width+x)*4;if(Math.max(pixels[i],pixels[i+1],pixels[i+2])-Math.min(pixels[i],pixels[i+1],pixels[i+2])>35)enclosedColor++;}
+      if(enclosedColor>3)continue;
+      let enclosedPaper=0;
+      for(let y=c.top;y<=c.bottom;y++)for(let x=c.left;x<=c.right;x++){const id=backgroundLabels[y*width+x];if(id&&id!==paperId)enclosedPaper++;}
+      if(enclosedPaper>Math.max(45,glyph*glyph*.13))continue;
+      // The complete connected stroke is removed, including antialiasing just
+      // outside a model-provided rectangle, but not adjacent disconnected art.
+      for(const p of c.points) for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++) {
+        const x=p%width+dx,y=Math.floor(p/width)+dy;
+        if(x>=0&&x<width&&y>=0&&y<height) erase[y*width+x]=1;
+      }
+      regions.push([Math.max(0,c.top-2)*1000/height,Math.max(0,c.left-2)*1000/width,Math.min(height,c.bottom+3)*1000/height,Math.min(width,c.right+3)*1000/width]);
+    }
+  }
+  const restored = eraseTextInk(pixels,width,height,regions);
+  // Only selected connected strokes may change, even when their rectangles overlap art.
+  for(let p=0;p<erase.length;p++) if(!erase[p]) for(let c=0;c<4;c++) restored[p*4+c]=pixels[p*4+c];
+  const polygons = blocks.map(block => {
+    const polygon=layoutPolygon(block,width,height);
+    const minY=Math.max(0,Math.ceil(Math.min(...polygon.map(p=>p[1])))),maxY=Math.min(height-1,Math.floor(Math.max(...polygon.map(p=>p[1]))));
+    const left:Point[]=[],right:Point[]=[];
+    for(let y=minY+2;y<maxY-2;y+=3) {
+      const span=lineSpan(polygon,y,y+.1,2); if(!span) continue;
+      const ranges:[number,number][]=[];let start=-1;
+      for(let x=Math.max(0,Math.ceil(span[0]));x<=Math.min(width-1,Math.floor(span[1]));x++) {
+        const p=y*width+x,i=p*4;
+        const color=[pixels[i],pixels[i+1],pixels[i+2]];
+        const obstacle=!erase[p] && (Math.max(...color)<190 || Math.max(...color)-Math.min(...color)>40);
+        if(!obstacle && start<0) start=x;
+        if(obstacle && start>=0){ranges.push([start,x-1]);start=-1;}
+      }
+      if(start>=0)ranges.push([start,Math.floor(span[1])]);
+      const widest=ranges.sort((a,b)=>(b[1]-b[0])-(a[1]-a[0]))[0];
+      if(widest && widest[1]-widest[0]>8){left.push([widest[0]+2,y]);right.push([widest[1]-2,y]);}
+    }
+    return left.length>2?[...left,...right.reverse()]:polygon;
+  });
+  return { pixels: restored, polygons };
 }
