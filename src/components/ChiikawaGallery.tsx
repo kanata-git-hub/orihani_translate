@@ -2,12 +2,15 @@ import React, { useEffect, useState } from 'react';
 import { X, Loader2, RefreshCw, ExternalLink } from 'lucide-react';
 
 export function UsagiIcon() {
-  return <svg viewBox="0 0 32 36" width="25" height="28" fill="none" aria-hidden="true">
-    <path d="M9 18C6 10 7 2 10 2c3 0 4 9 4 14h3C17 10 19 2 22 3c3 1 1 10-1 15 6 2 9 7 7 11-3 7-22 7-24 0-2-5 0-9 5-11Z" fill="#fff0af" stroke="currentColor" strokeWidth="1.6"/>
+  return <svg viewBox="0 0 32 36" width="28" height="32" fill="none" aria-hidden="true">
+    <path d="M9.5 16C8 11 8 2.5 10.5 1.5c3-1 3.5 8.5 3.5 14h3.5C17.5 9 18.5 .5 21 1c3 .5 2.5 10.5 1 16.5 4.5 2 7 5.5 7 10 0 6.5-5.5 8-13 8s-13-1.5-13-8c0-4.5 2-9 6.5-11.5Z" fill="#fff0af" stroke="currentColor" strokeWidth="1.6"/>
     <path d="m10 6 1 8m10-7-2 8" stroke="#efa8a6" strokeWidth="2" strokeLinecap="round"/>
-    <ellipse cx="10" cy="24" rx="1.5" ry="2" fill="currentColor"/><ellipse cx="22" cy="24" rx="1.5" ry="2" fill="currentColor"/>
-    <path d="m14 26 2 1 2-1m-2 1v3m-3-1q3 3 6 0" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-    <path d="M6 27h3m14 0h3" stroke="#efa8a6" strokeWidth="2" strokeLinecap="round"/>
+    <path d="M8 20q2-2 4-.5m8 0q2-1.5 4 .5" stroke="#49392d" strokeWidth="1.2" strokeLinecap="round"/>
+    <ellipse cx="10.5" cy="23.5" rx="1.7" ry="2.1" fill="#30291f"/><ellipse cx="21.5" cy="23.5" rx="1.7" ry="2.1" fill="#30291f"/>
+    <circle cx="10" cy="23" r=".55" fill="white"/><circle cx="21" cy="23" r=".55" fill="white"/>
+    <path d="M14.5 26q1.5-1 3 0m-4 1.5q.5 2 2.5 .5 2 1.5 2.5-.5m-3.5 3q1 1.5 2 0" stroke="#49392d" strokeWidth="1" strokeLinecap="round" strokeLinejoin="round"/>
+    <ellipse cx="7" cy="27" rx="2.5" ry="1.6" fill="#f2b3b0"/><ellipse cx="25" cy="27" rx="2.5" ry="1.6" fill="#f2b3b0"/>
+    <path d="m6 26.5-.4 1m1.5-1-.4 1m17-1-.4 1m1.5-1-.4 1" stroke="#bc7979" strokeWidth=".6" strokeLinecap="round"/>
   </svg>;
 }
 
