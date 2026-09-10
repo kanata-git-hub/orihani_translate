@@ -1,6 +1,7 @@
 let nextStartTime = 0;
 let holdPlayback = false;
 const audioQueue: string[] = [];
+const activeSources = new Set<AudioBufferSourceNode>();
 
 export function setHoldPlayback(hold: boolean, context: AudioContext) {
   holdPlayback = hold;
@@ -34,6 +35,8 @@ export function playAudioChunk(context: AudioContext, base64Audio: string) {
     }
     
     const source = context.createBufferSource();
+    activeSources.add(source);
+    source.onended = () => { activeSources.delete(source); source.disconnect(); };
     source.buffer = audioBuffer;
     source.connect(context.destination);
     
@@ -49,6 +52,11 @@ export function playAudioChunk(context: AudioContext, base64Audio: string) {
 }
 
 export function resetAudioQueue() {
+  for (const source of activeSources) {
+    try { source.stop(); } catch { /* Already stopped. */ }
+    source.disconnect();
+  }
+  activeSources.clear();
   nextStartTime = 0;
   audioQueue.length = 0;
 }
