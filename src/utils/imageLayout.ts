@@ -1,5 +1,6 @@
 export type Box = [number, number, number, number];
 export type Point = [number, number]; // x/y, image pixels
+export interface ArtworkRect { left: number; right: number; top: number; bottom: number }
 export interface TextBlock {
   original: string;
   translation: string;
@@ -34,7 +35,7 @@ export function layoutPolygon(block: TextBlock, width: number, height: number): 
 }
 
 // A line must fit at every polygon vertex within its full glyph height, not only its baseline.
-export function lineSpan(polygon: Point[], top: number, bottom: number, padding: number): [number, number] | null {
+export function lineSpan(polygon: Point[], top: number, bottom: number, padding: number, protectedRects: ArtworkRect[] = []): [number, number] | null {
   let ranges: [number, number][] = [[-Infinity, Infinity]];
   const ys = [top, bottom, (top + bottom) / 2, ...polygon.map(p => p[1]).filter(y => y > top && y < bottom).flatMap(y => [y - 0.01, y + 0.01])];
   for (const y of ys) {
@@ -51,10 +52,17 @@ export function lineSpan(polygon: Point[], top: number, bottom: number, padding:
     }
     ranges = next;
   }
+  for (const rect of protectedRects) {
+    if (rect.bottom + padding < top || rect.top - padding > bottom) continue;
+    ranges = ranges.flatMap(([left, right]) => {
+      if (right < rect.left - padding || left > rect.right + padding) return [[left, right] as [number, number]];
+      return [[left, Math.min(right, rect.left - padding)], [Math.max(left, rect.right + padding), right]].filter(([a, b]) => b > a) as [number, number][];
+    });
+  }
   return ranges.sort((a, b) => (b[1] - b[0]) - (a[1] - a[0]))[0] || null;
 }
 
-export function fitInPolygon(text: string, polygon: Point[], maxSize: number, measure: (text: string, size: number) => number): { size: number; lines: { text: string; x: number; y: number }[] } {
+export function fitInPolygon(text: string, polygon: Point[], maxSize: number, measure: (text: string, size: number) => number, protectedRects: ArtworkRect[] = []): { size: number; lines: { text: string; x: number; y: number }[] } {
   const minY = Math.min(...polygon.map(p => p[1])), maxY = Math.max(...polygon.map(p => p[1]));
   const characters = Array.from(text.trim());
   // Prefer intact words at a slightly smaller size over breaking Korean syllables mid-word.
@@ -68,7 +76,7 @@ export function fitInPolygon(text: string, polygon: Point[], maxSize: number, me
       let offset = 0;
       for (let row = 0; row < count && offset < characters.length; row++) {
         const y = top + row * leading;
-        const span = lineSpan(polygon, y + pad, y + leading - pad, pad);
+        const span = lineSpan(polygon, y + pad, y + leading - pad, pad, protectedRects);
         if (!span) break;
         const start = offset;
         let lastSpace = -1;
@@ -105,7 +113,8 @@ export function eraseTextInk(pixels: Uint8ClampedArray, width: number, height: n
       const bin = bins.get(key) || []; bin.push(color); bins.set(key, bin);
     }
     const bgSamples = [...bins.values()].sort((a, b) => b.length - a.length)[0];
-    const background = [0, 1, 2].map(c => bgSamples.reduce((sum, p) => sum + p[c], 0) / bgSamples.length);
+    // Median resists dark antialiasing pixels along a tightly cropped glyph.
+    const background = [0, 1, 2].map(c => bgSamples.map(p => p[c]).sort((a, b) => a - b)[Math.floor(bgSamples.length / 2)]);
     const distance = (index: number) => Math.sqrt([0, 1, 2].reduce((sum, c) => sum + (pixels[index + c] - background[c]) ** 2, 0));
     const masked: number[] = [];
     for (let y = top; y < bottom; y++) for (let x = left; x < right; x++) {
@@ -113,7 +122,7 @@ export function eraseTextInk(pixels: Uint8ClampedArray, width: number, height: n
       const color = [pixels[i], pixels[i + 1], pixels[i + 2]];
       // Dark text can be removed without treating a blue head or pink cheek as ink.
       // Saturated lettering is preserved until its color can be identified reliably.
-      if (distance(i) > 38 && Math.max(...color) - Math.min(...color) < 55 && Math.max(...color) < 235) masked.push(i);
+      if (distance(i) > 12 && Math.max(...color) - Math.min(...color) < 55 && Math.max(...color) < 250) masked.push(i);
     }
     for (const index of masked) {
       const x = (index / 4) % width, y = Math.floor(index / 4 / width);
@@ -123,7 +132,7 @@ export function eraseTextInk(pixels: Uint8ClampedArray, width: number, height: n
           const sx = x + dx * step, sy = y + dy * step;
           if (sx < left || sx >= right || sy < top || sy >= bottom) break;
           const j = (sy * width + sx) * 4;
-          if (distance(j) < 24) { nearby.push([pixels[j], pixels[j + 1], pixels[j + 2]]); break; }
+          if (distance(j) < 8) { nearby.push([pixels[j], pixels[j + 1], pixels[j + 2]]); break; }
         }
       }
       for (let c = 0; c < 3; c++) result[index + c] = nearby.length ? nearby.reduce((sum, p) => sum + p[c], 0) / nearby.length : background[c];
@@ -151,7 +160,11 @@ export async function composeTranslation(src: string, blocks: TextBlock[]): Prom
     const originalArea = (block.box[2] - block.box[0]) * height / 1000 * (block.box[3] - block.box[1]) * width / 1000;
     const originalSize = Math.sqrt(originalArea / Math.max(1, Array.from(block.original.replace(/\s/g, '')).length));
     const maxSize = Math.max(5, Math.min(width / 18, originalSize * 1.25));
-    const fitted = fitInPolygon(block.translation, polygon, maxSize, (text, size) => { ctx.font = font(size); return ctx.measureText(text).width; });
+    // A tightly traced sound-effect region may itself contain colored outlined
+    // letters. Keep its existing placement instead of treating those as faces.
+    const tightLayout = block.layout_polygon?.length && block.layout_polygon.every(([y,x]) => y >= block.box[0]-2 && y <= block.box[2]+2 && x >= block.box[1]-2 && x <= block.box[3]+2);
+    const protectedRects = refined.artwork.filter(a => !(tightLayout && (a.left+a.right)/2 >= block.box[1]*width/1000 && (a.left+a.right)/2 <= block.box[3]*width/1000 && (a.top+a.bottom)/2 >= block.box[0]*height/1000 && (a.top+a.bottom)/2 <= block.box[2]*height/1000));
+    const fitted = fitInPolygon(block.translation, polygon, maxSize, (text, size) => { ctx.font = font(size); return ctx.measureText(text).width; }, protectedRects);
     ctx.save(); ctx.beginPath();
     polygon.forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y)); ctx.closePath(); ctx.clip();
     ctx.font = font(fitted.size); ctx.fillStyle = '#33251f'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -180,6 +193,29 @@ export function refineImageLayout(pixels: Uint8ClampedArray, width: number, heig
     }
     components.push({points, left, right, top, bottom});
   }
+  // Protect the interior of small illustrated outlines as well as the outline
+  // itself. A gap in a face contour can otherwise connect its eyes to the same
+  // white background as a nearby speech balloon.
+  const stride = width + 1;
+  const colorSum = new Uint32Array(stride * (height + 1));
+  for (let y = 0; y < height; y++) {
+    let row = 0;
+    for (let x = 0; x < width; x++) {
+      const i = (y * width + x) * 4;
+      if (Math.max(pixels[i], pixels[i + 1], pixels[i + 2]) - Math.min(pixels[i], pixels[i + 1], pixels[i + 2]) > 35) row++;
+      colorSum[(y + 1) * stride + x + 1] = colorSum[y * stride + x + 1] + row;
+    }
+  }
+  const coloredInside = (c: typeof components[number]) => {
+    // Background at the corners of a curved balloon is outside its interior.
+    const insetX=Math.ceil((c.right-c.left)*.15),insetY=Math.ceil((c.bottom-c.top)*.15);
+    const l=c.left+insetX,r=c.right-insetX,t=c.top+insetY,b=c.bottom-insetY;
+    return colorSum[(b+1)*stride+r+1]-colorSum[t*stride+r+1]-colorSum[(b+1)*stride+l]+colorSum[t*stride+l];
+  };
+  const illustrated = components.filter(c => c.right - c.left >= 8 && c.bottom - c.top >= 8 && (c.right - c.left) * (c.bottom - c.top) < width * height * 0.12 && coloredInside(c) > 3);
+  // Use the innermost outline; a balloon containing a small character must
+  // still have its surrounding dialogue translated.
+  const artwork = illustrated.filter(c => !illustrated.some(inner => inner !== c && inner.left >= c.left && inner.right <= c.right && inner.top >= c.top && inner.bottom <= c.bottom && (inner.right-inner.left)*(inner.bottom-inner.top) < (c.right-c.left)*(c.bottom-c.top)));
   const backgroundLabels = new Int32Array(width * height);
   const isPaper = (p: number) => Math.min(pixels[p*4],pixels[p*4+1],pixels[p*4+2]) > 205 && Math.max(pixels[p*4],pixels[p*4+1],pixels[p*4+2])-Math.min(pixels[p*4],pixels[p*4+1],pixels[p*4+2]) < 35;
   let backgroundId=0;
@@ -200,6 +236,10 @@ export function refineImageLayout(pixels: Uint8ClampedArray, width: number, heig
     const [y0,x0,y1,x1] = block.box;
     const glyph = Math.max(8, Math.sqrt((y1-y0)*height/1000*(x1-x0)*width/1000/Math.max(1,Array.from(block.original.replace(/\s/g,'')).length)));
     const margin = Math.min(36, glyph * 1.4);
+    const textRegions = block.text_regions?.filter(validBox) || [];
+    // Vision coordinates can be displaced by a whole glyph on hand-drawn text.
+    // Keep that tolerance, but do not erase the large gaps between separate lines.
+    const regionPad = margin;
     const votes=new Map<number,number>();
     for(let y=Math.floor(y0*height/1000);y<y1*height/1000;y+=2)for(let x=Math.floor(x0*width/1000);x<x1*width/1000;x+=2){const id=backgroundLabels[y*width+x];if(id)votes.set(id,(votes.get(id)||0)+1);}
     const paperId=[...votes].sort((a,b)=>b[1]-a[1])[0]?.[0];
@@ -207,6 +247,12 @@ export function refineImageLayout(pixels: Uint8ClampedArray, width: number, heig
     for (const c of components) {
       const cx=(c.left+c.right)/2,cy=(c.top+c.bottom)/2;
       if(cx<l||cx>r||cy<t||cy>b||c.right-c.left>glyph*2.2||c.bottom-c.top>glyph*2.2) continue;
+      if (artwork.some(a => cx >= a.left && cx <= a.right && cy >= a.top && cy <= a.bottom)) continue;
+      if (textRegions.length) {
+        const nearText = textRegions.some(([ry0, rx0, ry1, rx1]) => cx >= rx0 * width / 1000 - regionPad && cx <= rx1 * width / 1000 + regionPad && cy >= ry0 * height / 1000 - regionPad && cy <= ry1 * height / 1000 + regionPad);
+        // A nearby eye, mouth or decoration is not text merely because it is small.
+        if (!nearText) continue;
+      }
       if(paperId && !c.points.some(p => [[-2,0],[2,0],[0,-2],[0,2]].some(([dx,dy])=>{const x=p%width+dx,y=Math.floor(p/width)+dy;return x>=0&&x<width&&y>=0&&y<height&&backgroundLabels[y*width+x]===paperId;})))continue;
       if(c.points.some(p=>Math.max(pixels[p*4],pixels[p*4+1],pixels[p*4+2])-Math.min(pixels[p*4],pixels[p*4+1],pixels[p*4+2])>40))continue;
       let enclosedColor=0;
@@ -217,9 +263,12 @@ export function refineImageLayout(pixels: Uint8ClampedArray, width: number, heig
       if(enclosedPaper>Math.max(45,glyph*glyph*.13))continue;
       // The complete connected stroke is removed, including antialiasing just
       // outside a model-provided rectangle, but not adjacent disconnected art.
-      for(const p of c.points) for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++) {
+      for(const p of c.points) for(let dy=-2;dy<=2;dy++) for(let dx=-2;dx<=2;dx++) {
         const x=p%width+dx,y=Math.floor(p/width)+dy;
-        if(x>=0&&x<width&&y>=0&&y<height) erase[y*width+x]=1;
+        if(x>=0&&x<width&&y>=0&&y<height) {
+          const q=y*width+x,i=q*4;
+          if ((!labels[q] || labels[q]===labels[p]) && Math.max(pixels[i],pixels[i+1],pixels[i+2])-Math.min(pixels[i],pixels[i+1],pixels[i+2])<35) erase[q]=1;
+        }
       }
       regions.push([Math.max(0,c.top-2)*1000/height,Math.max(0,c.left-2)*1000/width,Math.min(height,c.bottom+3)*1000/height,Math.min(width,c.right+3)*1000/width]);
     }
@@ -247,5 +296,5 @@ export function refineImageLayout(pixels: Uint8ClampedArray, width: number, heig
     }
     return left.length>2?[...left,...right.reverse()]:polygon;
   });
-  return { pixels: restored, polygons };
+  return { pixels: restored, polygons, artwork: artwork.map(({left, right, top, bottom}) => ({left, right, top, bottom})) };
 }
