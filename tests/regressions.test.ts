@@ -122,3 +122,58 @@ test('coarse text boxes preserve an enclosed colored character and its eyes', ()
   assert.equal(result.pixels[(12*w+16)*4],255);
   for(let y=35;y<=65;y++)for(let x=35;x<=65;x++)assert.deepEqual(result.pixels.slice((y*w+x)*4,(y*w+x)*4+4),p.slice((y*w+x)*4,(y*w+x)*4+4));
 });
+
+test('public post URLs only accept the official account and supported HTTPS hosts', async () => {
+  const { parseChiikawaPostUrl } = await import('../chiikawa.ts');
+  assert.deepEqual(parseChiikawaPostUrl('https://x.com/ngnchiikawa/status/1975148037057229056/photo/2?s=20'), { id: '1975148037057229056', photoIndex: 1 });
+  assert.ok(parseChiikawaPostUrl('https://twitter.com/ngnchiikawa/status/1975148037057229056'));
+  for (const value of ['http://x.com/ngnchiikawa/status/1975148037057229056', 'https://x.com.evil.test/ngnchiikawa/status/1975148037057229056', 'https://user:pass@x.com/ngnchiikawa/status/1975148037057229056', 'https://x.com/other/status/1975148037057229056', 'https://127.0.0.1/private', 'https://x.com/ngnchiikawa/media']) assert.equal(parseChiikawaPostUrl(value), null);
+});
+
+test('public post import needs no API key, shares lookups, and only proxies verified photo URLs', async () => {
+  const realFetch = globalThis.fetch; let calls = 0; let imageUrl = '';
+  globalThis.fetch = (async (input: any, init: any) => {
+    const url = String(input);
+    if (url.startsWith('https://cdn.syndication.twimg.com/')) {
+      calls++;
+      return Response.json({ __typename: 'Tweet', id_str: '1975148037057229056', user: { screen_name: 'ngnchiikawa' }, created_at: '2025-10-06T10:36:03.000Z', mediaDetails: [{ type: 'photo', media_url_https: 'https://pbs.twimg.com/media/test.jpg' }, { type: 'photo', media_url_https: 'https://localhost/private.jpg' }, { type: 'video', media_url_https: 'https://pbs.twimg.com/media/video.jpg' }] });
+    }
+    if (url.startsWith('https://pbs.twimg.com/')) { imageUrl = url; return new Response(new Uint8Array([1, 2, 3]), { headers: { 'content-type': 'image/jpeg' } }); }
+    return realFetch(input, init);
+  }) as typeof fetch;
+  const app = express(); registerChiikawa(app); const server = app.listen(0, '127.0.0.1');
+  await new Promise<void>(resolve => server.once('listening', resolve));
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  try {
+    const url = `${base}/api/chiikawa/post?url=${encodeURIComponent('https://x.com/ngnchiikawa/status/1975148037057229056')}`;
+    const responses = await Promise.all([realFetch(url), realFetch(url)]);
+    const result = await responses[0].json(); assert.equal(result.photos.length, 1); assert.equal(calls, 1);
+    const image = await realFetch(`${base}/api/chiikawa/public-image/1975148037057229056/0`);
+    assert.equal(image.status, 200); assert.equal(imageUrl, 'https://pbs.twimg.com/media/test.jpg?name=orig');
+    assert.equal((await realFetch(`${base}/api/chiikawa/public-image/1975148037057229056/3`)).status, 404);
+    assert.equal((await realFetch(`${base}/api/chiikawa/post?url=https://localhost/private`)).status, 400);
+    assert.equal((await realFetch(`${base}/api/chiikawa/public-image/not-a-post/0`)).status, 400);
+  } finally { globalThis.fetch = realFetch; await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+test('public import rejects unavailable authors and backs off on X rate limits', async () => {
+  const realFetch = globalThis.fetch; let limitedCalls = 0;
+  globalThis.fetch = (async (input: any, init: any) => {
+    const url = String(input);
+    if (url.startsWith('https://cdn.syndication.twimg.com/')) {
+      if (url.includes('1975148037057229056')) return Response.json({ __typename: 'Tweet', id_str: '1975148037057229056', user: { screen_name: 'other' } });
+      limitedCalls++; return new Response('Rate limited', { status: 429 });
+    }
+    return realFetch(input, init);
+  }) as typeof fetch;
+  const app = express(); registerChiikawa(app); const server = app.listen(0, '127.0.0.1');
+  await new Promise<void>(resolve => server.once('listening', resolve));
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`;
+  try {
+    const request = (id: string) => realFetch(`${base}/api/chiikawa/post?url=${encodeURIComponent(`https://x.com/ngnchiikawa/status/${id}`)}`);
+    assert.equal((await request('1975148037057229056')).status, 404);
+    assert.equal((await request('1975148037057229057')).status, 429);
+    assert.equal((await request('1975148037057229058')).status, 429);
+    assert.equal(limitedCalls, 1);
+  } finally { globalThis.fetch = realFetch; await new Promise<void>(resolve => server.close(() => resolve())); }
+});
