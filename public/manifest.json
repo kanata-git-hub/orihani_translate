@@ -2,6 +2,12 @@
   "name": "오리 가이드",
   "short_name": "오리 가이드",
   "start_url": "/",
+  "scope": "/",
+  "share_target": {
+    "action": "/share",
+    "method": "GET",
+    "params": { "title": "title", "text": "text", "url": "url" }
+  },
   "display": "standalone",
   "background_color": "#ffffff",
   "theme_color": "#000000",
