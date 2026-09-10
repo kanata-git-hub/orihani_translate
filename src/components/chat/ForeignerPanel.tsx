@@ -1,3 +1,4 @@
+import { UsagiIcon } from '../ChiikawaGallery';
 import React, { useState } from 'react';
 import { Mic, Square, Languages, Volume2, Loader2, LogOut, Shield, Pencil, Send, RotateCcw, Camera, VolumeX, Copy, Check } from 'lucide-react';
 import { renderPronunciation } from '../../utils/textUtils';
@@ -29,6 +30,7 @@ interface ForeignerPanelProps {
   imageInputForeignerRef: React.RefObject<HTMLInputElement>;
   handleImageChange: (e: React.ChangeEvent<HTMLInputElement>, role: 'foreigner') => void;
   audioLevels?: number[];
+  onOpenChiikawa: () => void;
 }
 
 export const ForeignerPanel: React.FC<ForeignerPanelProps> = ({
@@ -39,7 +41,7 @@ export const ForeignerPanel: React.FC<ForeignerPanelProps> = ({
   foreignerText, localUnfinalizedForeigner, foreignerPronunciation,
   textInputForeigner, setTextInputForeigner, handleSendText,
   playingTTS, playTTS, processingRole,
-  imageInputForeignerRef, handleImageChange, audioLevels
+  imageInputForeignerRef, handleImageChange, audioLevels, onOpenChiikawa
 }) => {
   const [isCopied, setIsCopied] = useState(false);
 
@@ -187,11 +189,11 @@ export const ForeignerPanel: React.FC<ForeignerPanelProps> = ({
       </div>
 
       <div className="sticky bottom-8 left-0 right-0 flex justify-center z-10 h-0 overflow-visible pointer-events-none">
-        <div className="flex items-center gap-1 bg-black/30 border border-white/10 backdrop-blur-md rounded-[60px] pl-4 pr-2 py-6 shadow-2xl pointer-events-auto">
-          <div className="flex items-center pr-3 mr-1 border-r border-white/10">
-            <span className="text-[#e74c3c] font-bold text-[16px]">외국어</span>
+        <div className="flex items-center gap-1 bg-black/30 border border-white/10 backdrop-blur-md rounded-[60px] pl-2 pr-1 sm:pl-4 sm:pr-2 py-6 shadow-2xl pointer-events-auto">
+          <div className="flex items-center pr-1 sm:pr-3 mr-1 border-r border-white/10">
+            <span className="text-[#e74c3c] font-bold text-[13px] sm:text-[16px]">외국어</span>
             <span className="text-white/30 text-[10px] mx-1.5">▶</span>
-            <span className="text-[#3498db] font-bold text-[16px]">한국어</span>
+            <span className="text-[#3498db] font-bold text-[13px] sm:text-[16px]">한국어</span>
           </div>
           <button
             onClick={() => {
@@ -235,6 +237,7 @@ export const ForeignerPanel: React.FC<ForeignerPanelProps> = ({
               onChange={(e) => handleImageChange(e, 'foreigner')} 
             />
           </button>
+          <button onClick={onOpenChiikawa} title="치이카와 만화" aria-label="치이카와 만화" className="flex shrink-0 items-center justify-center w-10 h-10 rounded-full hover:bg-black/10 transition-colors"><UsagiIcon /></button>
         </div>
       </div>
     </div>

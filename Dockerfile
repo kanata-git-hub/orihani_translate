@@ -13,6 +13,7 @@ COPY package*.json ./
 RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/server.ts ./server.ts
+COPY --from=build /app/chiikawa.ts ./chiikawa.ts
 
 ENV NODE_ENV=production
 EXPOSE 8080

@@ -1,3 +1,4 @@
+import { ChiikawaGallery } from '../components/ChiikawaGallery';
 import React, { useState, useRef, useEffect } from 'react';
 import { Mic, Square, Languages, Volume2, VolumeX, Loader2, LogOut, Shield, HelpCircle, X, Pencil, Send, RotateCcw, Camera, Compass } from 'lucide-react';
 import { playAudioChunk, resetAudioQueue, setHoldPlayback } from '../audio';
@@ -68,6 +69,7 @@ export default function App() {
   const [playingTTS, setPlayingTTS] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
   const [isFirstVisit, setIsFirstVisit] = useState(false);
+  const [showChiikawa, setShowChiikawa] = useState(false);
   const [showImageModal, setShowImageModal] = useState(false);
   const [showDocumentModal, setShowDocumentModal] = useState(false);
   const [showSmartSearch, setShowSmartSearch] = useState(false);
@@ -87,6 +89,7 @@ export default function App() {
   }, []);
 
   const wsRef = useRef<WebSocket | null>(null);
+  const wsConnectingRef = useRef<Promise<WebSocket> | null>(null);
   const recognitionRef = useRef<any>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -94,6 +97,7 @@ export default function App() {
   const analyserRef = useRef<AnalyserNode | null>(null);
   const visualizerIntervalRef = useRef<any>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const recordingAttemptRef = useRef(0);
 
   const [audioLevels, setAudioLevels] = useState<number[]>(new Array(15).fill(10));
 
@@ -160,7 +164,8 @@ export default function App() {
   };
 
   const getEnsureWs = () => {
-    return new Promise<WebSocket>((resolve, reject) => {
+    if (wsConnectingRef.current) return wsConnectingRef.current;
+    const connection = new Promise<WebSocket>((resolve, reject) => {
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         resolve(wsRef.current);
         return;
@@ -288,11 +293,15 @@ export default function App() {
       };
       
       ws.onclose = () => {
+        reject(new Error('음성 번역 연결이 종료되었습니다.'));
         if (wsRef.current === ws) {
           wsRef.current = null;
         }
       };
     });
+    wsConnectingRef.current = connection;
+    connection.then(() => { wsConnectingRef.current = null; }, () => { wsConnectingRef.current = null; });
+    return connection;
   };
 
   useEffect(() => {
@@ -318,6 +327,8 @@ export default function App() {
   };
 
   const startRecording = async (role: 'foreigner' | 'user') => {
+    if (processingRole) return;
+    const attempt = ++recordingAttemptRef.current;
     if (lastSpeakerRef.current === 'user' && userCompleteRef.current.trim()) {
        lastUserOriginalSpeechRef.current = { text: userCompleteRef.current, time: lastStopTimeRef.current };
     } else if (lastSpeakerRef.current === 'foreigner' && foreignerCompleteRef.current.trim()) {
@@ -365,9 +376,13 @@ export default function App() {
     }, 5 * 60 * 1000);
     
     try {
-      await getEnsureWs();
-
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Connect while the user speaks; microphone startup need not wait for the socket.
+      getEnsureWs().catch(console.error);
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+      if (attempt !== recordingAttemptRef.current) {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
       streamRef.current = stream;
 
       const options = { mimeType: 'audio/webm' };
@@ -428,11 +443,12 @@ export default function App() {
 
     } catch (err) {
       console.error('Failed to access microphone or start recording', err);
-      setActiveMic(null);
+      if (attempt === recordingAttemptRef.current) stopRecording();
     }
   };
 
   const stopRecording = () => {
+    recordingAttemptRef.current++;
     lastStopTimeRef.current = Date.now();
     if (sessionTimeoutRef.current) {
       clearTimeout(sessionTimeoutRef.current);
@@ -445,6 +461,7 @@ export default function App() {
     }
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      setProcessingRole(activeMicRef.current);
       mediaRecorderRef.current.stop();
     }
 
@@ -513,13 +530,17 @@ export default function App() {
         foreignerLang: foreignerLang,
         ttsEnabled: ttsEnabledRef.current
       }));
-    }).catch(console.error);
+    }).catch(err => {
+      console.error(err);
+      setProcessingRole(null);
+      setUserText('음성 번역 연결에 실패했습니다. 다시 시도해 주세요.');
+    });
   };
 
   const toggleForeignerMic = () => {
     if (activeMic === 'foreigner') stopRecording();
     else {
-      if (activeMic === 'user') stopRecording();
+      if (activeMic === 'user') { stopRecording(); return; }
       startRecording('foreigner');
     }
   };
@@ -527,7 +548,7 @@ export default function App() {
   const toggleUserMic = () => {
     if (activeMic === 'user') stopRecording();
     else {
-      if (activeMic === 'foreigner') stopRecording();
+      if (activeMic === 'foreigner') { stopRecording(); return; }
       startRecording('user');
     }
   };
@@ -642,6 +663,7 @@ export default function App() {
         imageInputForeignerRef={imageInputForeignerRef}
         handleImageChange={handleImageChange}
         audioLevels={audioLevels}
+        onOpenChiikawa={() => setShowChiikawa(true)}
       />
 
       {/* Divider */}
@@ -676,6 +698,7 @@ export default function App() {
         handleCaptureAndDownload={handleCaptureAndDownload}
         isCapturing={isCapturing}
         audioLevels={audioLevels}
+        onOpenChiikawa={() => setShowChiikawa(true)}
       />
 
       {/* Help Modal */}
@@ -686,6 +709,11 @@ export default function App() {
         onClose={() => setShowSmartSearch(false)}
         targetLanguageCode={foreignerLang}
       />
+
+      {showChiikawa && <ChiikawaGallery onClose={() => setShowChiikawa(false)} onSelect={file => {
+        if (activeMic) stopRecording();
+        setImageTargetLang('Korean'); setImageFile(file); setShowChiikawa(false); setShowImageModal(true);
+      }} />}
 
       <ImageTranslateModal 
         isOpen={showImageModal} 
