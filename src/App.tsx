@@ -4,6 +4,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute';
 
 import HomePage from './pages/HomePage';
+import SharePage from './pages/SharePage';
 import MainApp from './pages/MainApp';
 import AdminDashboard from './pages/AdminDashboard'; // To be created
 import PWAInstallPrompt from './components/PWAInstallPrompt';
@@ -15,6 +16,7 @@ export default function App() {
         <PWAInstallPrompt />
         <Routes>
           <Route path="/" element={<HomePage />} />
+          <Route path="/share" element={<SharePage />} />
           
           <Route element={<ProtectedRoute />}>
             <Route path="/app" element={<MainApp />} />

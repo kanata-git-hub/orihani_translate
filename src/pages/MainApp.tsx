@@ -5,7 +5,7 @@ import { Mic, Square, Languages, Volume2, VolumeX, Loader2, LogOut, Shield, Help
 import { playAudioChunk, resetAudioQueue, setHoldPlayback } from '../audio';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { logout } from '../lib/firebaseUtils';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { TutorialModal } from '../components/TutorialModal';
 import { LOCALIZATION } from '../constants/localization';
@@ -27,6 +27,7 @@ export default function App() {
   }, [ttsEnabled]);
 
   const navigate = useNavigate();
+  const location = useLocation();
   const { isAdmin } = useAuth();
   
   const handleLogout = async () => {
@@ -72,6 +73,7 @@ export default function App() {
   const [isFirstVisit, setIsFirstVisit] = useState(false);
 
   const [showChiikawa, setShowChiikawa] = useState(false);
+  const [incomingShare, setIncomingShare] = useState<{link: string; error: string} | null>(null);
   const [showImageModal, setShowImageModal] = useState(false);
   const [showDocumentModal, setShowDocumentModal] = useState(false);
   const [showSmartSearch, setShowSmartSearch] = useState(false);
@@ -83,12 +85,25 @@ export default function App() {
   const [processingRole, setProcessingRole] = useState<'foreigner' | 'user' | null>(null);
 
   useEffect(() => {
+    if (location.state?.chiikawaShare) return;
     const isDismissed = localStorage.getItem('tutorialDismissed');
     if (isDismissed !== 'true') {
       setIsFirstVisit(true);
       setShowHelp(true);
     }
   }, []);
+
+  useEffect(() => {
+    const shared = location.state?.chiikawaShare;
+    if (!shared || typeof shared.link !== 'string' || typeof shared.error !== 'string') return;
+    setIncomingShare(shared);
+    setShowHelp(false);
+    setShowImageModal(false);
+    setImageFile(null);
+    setShowChiikawa(true);
+    // Consume the navigation so refresh/back cannot start another translation.
+    navigate('/app', { replace: true, state: null });
+  }, [location.state, navigate]);
 
   const wsRef = useRef<WebSocket | null>(null);
   const wsConnectingRef = useRef<Promise<WebSocket> | null>(null);
@@ -714,9 +729,9 @@ export default function App() {
 
 
 
-      {showChiikawa && <ChiikawaGallery onClose={() => setShowChiikawa(false)} onSelect={file => {
+      {showChiikawa && <ChiikawaGallery initialShare={incomingShare} onClose={() => { setShowChiikawa(false); setIncomingShare(null); }} onSelect={file => {
         if (activeMic) stopRecording();
-        setImageTargetLang('Korean'); setImageFile(file); setShowChiikawa(false); setShowImageModal(true);
+        setIncomingShare(null); setImageTargetLang('Korean'); setImageFile(file); setShowChiikawa(false); setShowImageModal(true);
       }} />}
 
       <ImageTranslateModal 
@@ -741,4 +756,3 @@ export default function App() {
     </div>
   );
 }
-
