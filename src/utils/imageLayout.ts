@@ -65,11 +65,12 @@ export function lineSpan(polygon: Point[], top: number, bottom: number, padding:
 export type ImageLayoutMode = 'comic' | 'photo';
 
 export function photoTextSegments(block: TextBlock): TextBlock[] {
-  const regions = block.text_regions?.filter(validBox) || [];
+  const regions = block.text_regions || [];
   const originals = block.original.split(/\r?\n/), translations = block.translation.split(/\r?\n/);
-  // Matching line groups let a caption next to a QR code stay next to it,
-  // instead of painting a rectangle across both the caption and the code.
-  const segments = regions.length > 1 && originals.length === regions.length && translations.length === regions.length
+  // Use matching OCR lines even for a single caption: its paragraph box may
+  // clip the source text or include a neighboring QR code. Do not drop invalid
+  // regions before counting, since that can create a false line correspondence.
+  const segments = regions.length > 0 && regions.every(validBox) && originals.length === regions.length && translations.length === regions.length
     ? regions.map((box,i) => ({original: originals[i], translation: translations[i], box})) : [block];
   return segments.filter(segment => segment.translation.trim() && segment.translation.trim() !== segment.original.trim());
 }
