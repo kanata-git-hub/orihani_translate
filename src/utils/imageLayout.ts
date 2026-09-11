@@ -62,6 +62,84 @@ export function lineSpan(polygon: Point[], top: number, bottom: number, padding:
   return ranges.sort((a, b) => (b[1] - b[0]) - (a[1] - a[0]))[0] || null;
 }
 
+export type ImageLayoutMode = 'comic' | 'photo';
+
+export function photoTextSegments(block: TextBlock): TextBlock[] {
+  const regions = block.text_regions?.filter(validBox) || [];
+  const originals = block.original.split(/\r?\n/), translations = block.translation.split(/\r?\n/);
+  // Matching line groups let a caption next to a QR code stay next to it,
+  // instead of painting a rectangle across both the caption and the code.
+  const segments = regions.length > 1 && originals.length === regions.length && translations.length === regions.length
+    ? regions.map((box,i) => ({original: originals[i], translation: translations[i], box})) : [block];
+  return segments.filter(segment => segment.translation.trim() && segment.translation.trim() !== segment.original.trim());
+}
+
+// Photographs and documents have colored/ textured backgrounds, not empty
+// speech balloons. Fit the complete translation inside its own text rectangle.
+export function fitInRectangle(text: string, box: ArtworkRect, maxSize: number, measure: (text: string, size: number) => number) {
+  const width = box.right - box.left, height = box.bottom - box.top;
+  if (!(width > 0 && height > 0)) throw new Error('글자 위치를 확인할 수 없습니다.');
+  const paragraphs = text.trim().split(/\r?\n/);
+  const wrap = (size: number) => {
+    const pad = Math.min(2, width * .015, height * .04), available = width - 2 * pad;
+    const lines: string[] = [];
+    for (const paragraph of paragraphs) {
+      const characters = Array.from(paragraph.trim());
+      if (!characters.length) { lines.push(''); continue; }
+      let start = 0;
+      while (start < characters.length) {
+        let lo = start + 1, hi = characters.length, end = start;
+        while (lo <= hi) {
+          const mid = Math.floor((lo + hi) / 2);
+          if (measure(characters.slice(start, mid).join(''), size) <= available) { end = mid; lo = mid + 1; }
+          else hi = mid - 1;
+        }
+        if (end === start) return null;
+        if (end < characters.length && characters[end] !== ' ') {
+          let space = end - 1;
+          while (space > start && characters[space] !== ' ') space--;
+          // Avoid breaking words when possible, but still fit long URLs/words.
+          if (space > start) end = space;
+        }
+        lines.push(characters.slice(start, end).join(''));
+        start = end;
+        while (characters[start] === ' ') start++;
+        if (lines.length * size * 1.2 > height - 2 * pad) return null;
+      }
+    }
+    if (lines.length * size * 1.2 > height - 2 * pad) return null;
+    return {size, lines: lines.map((line, i) => ({text: line, x: box.left + pad, y: box.top + pad + (i + .5) * size * 1.2}))};
+  };
+  // Search is bounded; dense paragraphs must not trigger thousands of polygon
+  // scans or fail just because their translated words are longer than the source.
+  let low = Math.min(.1, width / (2*Math.max(1, Array.from(text).length)), height / (2*Math.max(1,Array.from(text).length))), high = Math.min(maxSize, height / 1.2);
+  let fitted = wrap(low);
+  for (let step = 0; step < 14; step++) {
+    const mid = (low + high) / 2, candidate = wrap(mid);
+    if (candidate) { low = mid; fitted = candidate; } else high = mid;
+  }
+  if (!fitted) throw new Error('글자 영역을 확인할 수 없습니다.');
+  return fitted;
+}
+
+function photoBackground(pixels: Uint8ClampedArray, width: number, height: number, box: ArtworkRect): number[] {
+  const bins = new Map<string, number[][]>();
+  const add = (x: number, y: number) => {
+    const offset = (Math.max(0, Math.min(height - 1, Math.round(y))) * width + Math.max(0, Math.min(width - 1, Math.round(x)))) * 4;
+    const rgb = Array.from(pixels.slice(offset, offset + 3)), key = rgb.map(c => Math.floor(c / 32)).join(',');
+    const group = bins.get(key) || []; group.push(rgb); bins.set(key, group);
+  };
+  for (let i = 0; i <= 30; i++) {
+    const x = box.left + (box.right - box.left) * i / 30, y = box.top + (box.bottom - box.top) * i / 30;
+    add(x, box.top - 1); add(x, box.bottom + 1); add(box.left - 1, y); add(box.right + 1, y);
+  }
+  // Table rules often dominate the perimeter. Sample inside too so a blue
+  // border does not turn the entire ingredient label into a dark blue patch.
+  for (let y=1;y<16;y++) for(let x=1;x<16;x++) add(box.left+(box.right-box.left)*x/16,box.top+(box.bottom-box.top)*y/16);
+  const group = [...bins.values()].sort((a,b) => b.length - a.length)[0];
+  return [0,1,2].map(c => group.map(rgb => rgb[c]).sort((a,b) => a-b)[Math.floor(group.length / 2)]);
+}
+
 export function fitInPolygon(text: string, polygon: Point[], maxSize: number, measure: (text: string, size: number) => number, protectedRects: ArtworkRect[] = []): { size: number; lines: { text: string; x: number; y: number }[] } {
   const minY = Math.min(...polygon.map(p => p[1])), maxY = Math.max(...polygon.map(p => p[1]));
   const characters = Array.from(text.trim());
@@ -141,17 +219,48 @@ export function eraseTextInk(pixels: Uint8ClampedArray, width: number, height: n
   return result;
 }
 
-export async function composeTranslation(src: string, blocks: TextBlock[]): Promise<Blob> {
+export async function composeTranslation(src: string, blocks: TextBlock[], options: {mode?: ImageLayoutMode} = {}): Promise<Blob> {
   const img = new Image(); img.src = src; await img.decode();
-  await document.fonts.load('20px KyoboHandwriting');
+  const mode = options.mode || 'comic';
+  if (mode === 'comic') await document.fonts.load('20px KyoboHandwriting').catch(() => {});
   const width = img.naturalWidth, height = img.naturalHeight;
   const canvas = document.createElement('canvas'); canvas.width = width; canvas.height = height;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) throw new Error('이미지를 만들 수 없습니다.');
   ctx.drawImage(img, 0, 0);
   const data = ctx.getImageData(0, 0, width, height);
-  const valid = blocks.filter(block => typeof block.translation === 'string' && block.translation.trim());
+  const valid = blocks.filter(block => typeof block.translation === 'string' && block.translation.trim()).map(block => {
+    if (validBox(block.box)) return block;
+    const regions = block.text_regions?.filter(validBox);
+    // Recover a malformed paragraph box from its independently located lines.
+    return regions?.length ? {...block, box: [Math.min(...regions.map(r=>r[0])),Math.min(...regions.map(r=>r[1])),Math.max(...regions.map(r=>r[2])),Math.max(...regions.map(r=>r[3]))] as Box} : block;
+  });
   if (valid.some(block => !validBox(block.box))) throw new Error('원문 위치를 다시 분석해야 합니다.');
+  if (mode === 'photo') {
+    const font = (size: number) => `${size}px "Malgun Gothic", "Apple SD Gothic Neo", Arial, sans-serif`;
+    // Plan before painting. Patches never grow beyond their original paragraph,
+    // and background sampling always uses the unchanged source photograph.
+    const plans = valid.flatMap(photoTextSegments).map(block => {
+      const [y0,x0,y1,x1] = block.box;
+      const rect = {left:x0*width/1000,right:x1*width/1000,top:y0*height/1000,bottom:y1*height/1000};
+      const originalSize = Math.sqrt((rect.right-rect.left)*(rect.bottom-rect.top)/Math.max(1,Array.from((block.original || '').replace(/\s/g,'')).length));
+      const fitted = fitInRectangle(block.translation, rect, Math.min(width/16, originalSize*1.1), (text,size) => {ctx.font=font(size);return ctx.measureText(text).width;});
+      return {rect,fitted,background:photoBackground(data.data,width,height,rect)};
+    });
+    // Paint all backgrounds first, so even overlapping OCR boxes cannot paint
+    // over a translation that has already been drawn.
+    for (const {rect,background} of plans) {
+      ctx.fillStyle=`rgb(${background.join(',')})`;
+      ctx.fillRect(rect.left,rect.top,rect.right-rect.left,rect.bottom-rect.top);
+    }
+    for (const {rect,fitted,background} of plans) {
+      ctx.save();ctx.beginPath();ctx.rect(rect.left,rect.top,rect.right-rect.left,rect.bottom-rect.top);ctx.clip();
+      ctx.font=font(fitted.size);ctx.textAlign='left';ctx.textBaseline='middle';
+      ctx.fillStyle=background[0]*.299+background[1]*.587+background[2]*.114>145?'#17202b':'#ffffff';
+      fitted.lines.forEach(line=>ctx.fillText(line.text,line.x,line.y));ctx.restore();
+    }
+    return new Promise((resolve,reject)=>canvas.toBlob(blob=>blob?resolve(blob):reject(new Error('이미지 저장 실패')),'image/png'));
+  }
   const refined = refineImageLayout(data.data, width, height, valid);
   data.data.set(refined.pixels); ctx.putImageData(data, 0, 0);
   const font = (size: number) => `${size}px "KyoboHandwriting", sans-serif`;

@@ -543,7 +543,9 @@ Pronunciation Guide Rules:
       const systemPrompt = `You are an OCR and translation expert. Analyze the image and perform two tasks:
 
 TASK 1: EXHAUSTIVE OCR & TRANSLATION (CRITICAL)
-- Group ALL text found in the image into logical paragraph blocks (do NOT split by individual words or single lines unless they stand alone).
+- First select layout_mode: "comic" for actual manga/comic panels and speech balloons; "photo" for ALL other inputs including product packaging, menus, receipts, signs, manuals and documents. An illustration or mascot printed on packaging does NOT make it a comic.
+- Group ALL text found in the image into logical paragraph blocks. Keep columns, table rows, nutrition facts, headings, captions and separate labels in separate blocks so that their original layout is preserved. Do not merge an entire table or product back label into one paragraph.
+- Never group text across a photo, QR code, barcode, pictogram or logo. Codes and pictograms are not text to erase. If text_regions correspond to separate lines and the original has those same line breaks, preserve their correspondence in translation when natural. Keep numbers, units, warnings and ingredient/allergen names exact; do not substitute a different nutritional quantity or omit fine print.
 - You MUST extract and translate EVERY single piece of text visible in the image to ${targetLang}. Do not skip any text, no matter how small or dense.
 - The translation MUST sound completely natural to a native speaker of the target language (${targetLang}) (e.g., Japanese for Japanese, Korean for Korean, American for English, etc.). Ensure the tone, phrasing, grammar, and vocabulary are localized and authentic. You MUST completely rewrite the sentence to fit the natural grammar and expressions of the target language, avoiding literal or word-for-word translations.
 - If the target language is Korean, you MUST translate like a professional human translator (전문 번역가). Completely eliminate unnatural "translationese" (번역투) and excessive passive voice (피동 표현). Instead of literal structures like "~한다고 알려져 있다", "~의 증가가 확인되었다", or "~하다고 여겨진다", you MUST proactively rephrase sentences into active, natural Korean structures (e.g., "~라고 합니다", "증가했습니다", "~라고 생각합니다"). Adjust particles (조사, e.g., 은/는/이/가/을/를), word order, and verbs to flow perfectly and idiomatically as if originally written in Korean. Do not just replace words; restructure the entire sentence if necessary to ensure the highest translation quality.
@@ -551,6 +553,7 @@ TASK 1: EXHAUSTIVE OCR & TRANSLATION (CRITICAL)
 - The box MUST tightly enclose only the original text, never enlarge it to fit the translation. Never merge separate speech balloons, panels, captions or signs.
 - For every block provide text_regions: tight rectangles for each original text line/column, in [ymin,xmin,ymax,xmax] coordinates. Include all original glyphs and a tiny background margin, but NEVER include a face, character, speech-balloon outline, panel border, or object outline. Use separate rectangles when artwork separates words. These regions erase the original ink, so precision matters more than combining regions.
 - Also provide layout_polygon: 4 to 16 ordered [y,x] points tracing the usable interior of that SAME speech balloon or caption, inset from its outline. This is where translated text will be typeset; it may use empty space around the original text but MUST exclude the balloon tail, faces, characters, props, panel borders, and neighboring balloons. It must be a simple polygon without crossed edges. For labels on objects and sound effects without a balloon, closely trace their original text region instead of borrowing space from nearby artwork.
+- For layout_mode "photo", set layout_polygon to []: typesetting will use each original paragraph box. NEVER apply speech-balloon rules to photographs or documents. Coordinates in box and text_regions are ALWAYS [ymin,xmin,ymax,xmax], never [xmin,ymin,xmax,ymax]. For comic polygons every point is [y,x]; a rectangle would be [[ymin,xmin],[ymin,xmax],[ymax,xmax],[ymax,xmin]].
 - The translated text must remain at its original location. Do not add reference numbers, footnotes, summaries or separate translation lists. Preserve meaning, emotional tone and punctuation; do not shorten by dropping content just to fit.
 - IMPORTANT: Your output MUST be strictly valid JSON. Ensure all double quotes inside strings are escaped as \\\". Ensure all newlines inside strings are escaped as \\n. Do not include trailing commas.
 
@@ -574,6 +577,7 @@ Extract relevant data for any of the fields below that are applicable to the ima
 
 Return a strict JSON object with this exact structure:
 {
+  "layout_mode": "comic" or "photo",
   "blocks": [
     { "original": "string", "translation": "string", "box": [number, number, number, number], "text_regions": [[number, number, number, number]], "layout_polygon": [[number, number]] }
   ],
@@ -603,6 +607,7 @@ Return a strict JSON object with this exact structure:
           responseSchema: {
             type: Type.OBJECT,
             properties: {
+              layout_mode: { type: Type.STRING, enum: ["comic", "photo"] },
               blocks: {
                 type: Type.ARRAY,
                 items: {
@@ -630,7 +635,7 @@ Return a strict JSON object with this exact structure:
                 required: ["amount", "currency", "location_keyword", "search_keyword", "summary"]
               }
             },
-            required: ["blocks", "category", "extracted_data"]
+            required: ["layout_mode", "blocks", "category", "extracted_data"]
           },
           maxOutputTokens: 16384
         }
