@@ -1,9 +1,9 @@
 import React, { useState, useRef, useEffect, startTransition } from 'react';
-import { X, Loader2, Download, Copy, Check, Calculator, Map, Search, AlignLeft, Info, Lightbulb } from 'lucide-react';
+import { X, Loader2, Download, Copy, Check, Calculator, Map, Search, AlignLeft, Info, Lightbulb, ZoomIn, ZoomOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 
-import { composeTranslation, validBox, type TextBlock } from '../utils/imageLayout';
+import { composeTranslation, validBox, type TextBlock, type ImageLayoutMode } from '../utils/imageLayout';
 
 interface ExtractedData {
   amount?: number | null;
@@ -23,6 +23,9 @@ interface ImageTranslateModalProps {
 export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: ImageTranslateModalProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [renderError, setRenderError] = useState('');
+  const [layoutMode, setLayoutMode] = useState<ImageLayoutMode>('photo');
+  const [zoom, setZoom] = useState(1);
   const [blocks, setBlocks] = useState<TextBlock[]>([]);
   const [category, setCategory] = useState<string | null>(null);
   const [extractedData, setExtractedData] = useState<ExtractedData | null>(null);
@@ -37,18 +40,19 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
   const [renderedImage, setRenderedImage] = useState<{ url: string; file: File; sourceAspect: number } | null>(null);
   useEffect(() => {
     setRenderedImage(null);
+    setRenderError('');
     if (!isOpen || loading || !imageSrc) return;
     let cancelled = false;
     let url: string | undefined;
     const original = new Image();
     original.src = imageSrc;
-    original.decode().then(() => composeTranslation(imageSrc, blocks)).then(blob => {
+    original.decode().then(() => composeTranslation(imageSrc, blocks, {mode: layoutMode})).then(blob => {
       if (cancelled) return;
       url = URL.createObjectURL(blob);
       setRenderedImage({ url, file: new File([blob], `translated_${Date.now()}.png`, { type: 'image/png' }), sourceAspect: original.naturalWidth / original.naturalHeight });
-    }).catch(() => { if (!cancelled) setError('번역 이미지 생성에 실패했습니다. 문자 탭에서 번역을 확인해 주세요.'); });
+    }).catch(err => { if (!cancelled) { console.error('Image composition failed:', err); setRenderError('이미지 배치를 완료하지 못했습니다. 번역문은 문자 탭에 보관되어 있습니다.'); } });
     return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
-  }, [isOpen, loading, imageSrc, blocks]);
+  }, [isOpen, loading, imageSrc, blocks, layoutMode]);
   const exportRef = useRef<HTMLDivElement>(null);
 
   const handleCopy = async (text: string, index: number | 'all') => {
@@ -112,7 +116,9 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
     setBlocks([]);
     setImageSrc(null);
     setViewMode('image');
+    setZoom(1);
     setError('');
+    setRenderError('');
 
     const processImage = async () => {
       // 2. 모션과 연산의 분리 (Absolute Delay)
@@ -281,6 +287,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
         // 박스들을 DOM에 먼저 주입하되, loading 상태는 유지합니다.
         startTransition(() => {
           setBlocks(data.blocks || []);
+          setLayoutMode(data.layout_mode === 'comic' ? 'comic' : data.layout_mode === 'photo' || ['price','product','long_text','location'].includes(data.category) ? 'photo' : 'comic');
           setCategory(data.category || null);
           setExtractedData(data.extracted_data || null);
         });
@@ -410,7 +417,14 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                 )}
               </div>
               
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-1 ml-auto">
+                {!loading && imageSrc && viewMode !== 'text' && (
+                  <>
+                    <button onClick={() => setZoom(z => Math.max(1, z - 1))} disabled={zoom === 1} className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-black/5 text-[#552c24] disabled:opacity-30" title="이미지 축소" aria-label="이미지 축소"><ZoomOut size={18}/></button>
+                    <span className="text-xs text-[#552c24] tabular-nums" aria-live="polite">{zoom}×</span>
+                    <button onClick={() => setZoom(z => Math.min(4, z + 1))} disabled={zoom === 4} className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-black/5 text-[#552c24] disabled:opacity-30" title="이미지 확대" aria-label="이미지 확대"><ZoomIn size={18}/></button>
+                  </>
+                )}
                 {!loading && blocks.length > 0 && viewMode === 'image' && (
                   <button 
                     onClick={handleSaveImage}
@@ -423,6 +437,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                 )}
                 <button 
                   onClick={onClose}
+                  aria-label="이미지 번역 닫기"
                   className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-black/5 transition-colors text-[#552c24]"
                 >
                   <X size={20} />
@@ -433,7 +448,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
         {/* Content */}
         <div className="flex-1 overflow-auto relative bg-[#e5e5e5] z-10 w-full min-h-0">
           <AnimatePresence>
-            {(loading || (viewMode === 'image' && imageSrc && !renderedImage && !error)) && (
+            {(loading || (viewMode === 'image' && imageSrc && !renderedImage && !error && !renderError)) && (
               <motion.div 
                 key="loading-overlay"
                 initial={{ opacity: 0 }}
@@ -449,16 +464,18 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
           </AnimatePresence>
           
           {error && (
-            <div className="absolute z-30 top-4 left-4 right-4 bg-red-100 text-red-700 p-4 rounded-xl text-center font-medium shadow-md">
+            <div role="alert" className="m-4 bg-red-100 text-red-700 p-4 rounded-xl text-center font-medium">
               {error}
             </div>
           )}
+          {renderError && viewMode === 'image' && <div role="alert" className="m-4 bg-amber-50 text-amber-900 p-3 rounded-xl text-sm">{renderError}</div>}
 
           {imageSrc && (viewMode === 'image' || viewMode === 'original') && (
-            <div className="relative flex justify-center items-start w-full p-2 md:p-6">
+            <div className="relative w-full p-2 md:p-6">
               <div 
                 ref={exportRef}
-                className="relative inline-block max-w-full shadow-lg rounded-xl"
+                className="relative shadow-lg rounded-xl"
+                style={{width: `${zoom * 100}%`}}
               >
                 <img 
                   src={viewMode === 'image' && renderedImage ? renderedImage.url : imageSrc}
@@ -471,8 +488,8 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                     const block = blocks.find(block => validBox(block.box) && y >= block.box[0] && y <= block.box[2] && x >= block.box[1] && x <= block.box[3]);
                     if (block) setSelectedBlock(block);
                   }}
-                  className="block max-w-full rounded-xl"
-                  style={{ width: 'auto', height: 'auto' }}
+                  className="block rounded-xl"
+                  style={{ width: '100%', height: 'auto' }}
                 />
                 
 
