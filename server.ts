@@ -1,3 +1,4 @@
+import { registerVoiceComparison } from './voiceComparison.ts';
 import { registerChiikawa } from './chiikawa.ts';
 import express from "express";
 import cors from "cors";
@@ -48,7 +49,8 @@ async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   const server = http.createServer(app);
-  const wss = new WebSocketServer({ server, path: "/live" });
+  const wss = new WebSocketServer({ noServer: true });
+  registerVoiceComparison(server, wss);
 
   // Map to hold live sessions
   const sessions = new Map<WebSocket, any>();

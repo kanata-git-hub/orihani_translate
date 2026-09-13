@@ -1,0 +1,7 @@
+node_modules
+dist
+.git
+.env*
+scripts/voice-benchmark/results
+scripts/voice-benchmark/inputs
+*.wav
