@@ -65,6 +65,22 @@ git pull --ff-only origin chore/voice-translation-benchmark && bash scripts/voic
 
 새 결과 폴더의 `report.json`, `source.wav`, `openai.wav`를 다운로드하세요. 보고서의 원음 해시가 이전 결과와 같은지 확인해야 같은 입력의 재검사라고 볼 수 있습니다. 이 실행의 `inputSource.kind`는 파일을 제공했다는 뜻의 `provided_audio`이며, 원래 합성한 음성인지 여부는 이전 보고서에서 확인합니다.
 
+### 원음 인식 진단
+
+정상적인 번역이 나오지 않으면 같은 비교를 반복하기 전에, 이미 저장한 한국어 `source.wav`로 아래 진단을 1회 실행할 수 있습니다.
+
+```sh
+git pull --ff-only origin chore/voice-translation-benchmark && bash scripts/voice-benchmark/cloud-shell.sh --diagnose-input /전체/경로/source.wav
+```
+
+이 모드만 `audio.input.transcription.model = gpt-realtime-whisper`를 설정하여 같은 번역 연결에서 별도 원음 받아쓰기 결과를 받습니다. 서버가 받아쓰기 설정을 확인하기 전에는 원음을 전송하지 않습니다. 기존 원음을 그대로 쓰며 Gemini와 입력 합성 TTS를 호출하지 않습니다. **OpenAI 번역 사용료에 별도 받아쓰기 사용료가 추가됩니다.** 기본 비교와 `--openai-audio`에서는 이 옵션을 켜지 않습니다.
+
+터미널에 원음 받아쓰기, 일본어 번역문, 전송 크기·해시와 주요 서버 이벤트 개수가 표시됩니다. 이 부분을 대화에 복사하면 파일을 다시 다운로드하기 전에 입력 인식 여부를 검토할 수 있습니다. 원음·번역문은 공개 저장소에 올리지 마세요. 중간에 오류가 생겨도 이미 받은 받아쓰기와 설정 기록은 보고서의 `diagnosticPartial`에 보존합니다.
+
+받아쓰기 문장이 원음과 일치하면 서버의 별도 인식 모델까지 음성이 도달한 근거가 됩니다. 번역 모델 내부의 인식 내용이 같다고 증명하는 것은 아닙니다. 받아쓰기도 비어 있으면 전송·인식·설정 문제를 계속 구분해야 하며, 미전송으로 자동 판정하지 않습니다. 이 모드의 `purpose`는 `input_diagnostic`이고 추가 모델을 함께 쓰므로 이전 속도 측정과 직접 비교하지 않습니다. 실제 API에서 진단이 성공했는지는 실행 결과로 확인해야 합니다.
+
+[OpenAI 공식 입력 받아쓰기 설정](https://developers.openai.com/api/reference/resources/realtime/translation-client-events), [받아쓰기 모델 및 과금](https://developers.openai.com/api/docs/models/gpt-realtime-whisper).
+
 ### 준비된 서버 환경에서 직접 실행
 
 Node 24와 저장소의 기존 `npm ci` 의존성만 사용합니다. OpenAI SDK 추가 설치는 필요하지 않습니다.

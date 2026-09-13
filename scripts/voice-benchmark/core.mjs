@@ -92,6 +92,7 @@ export function summarize(run) {
   if (firstSignal === null) reviewWarnings.push('NO_SIGNAL_ABOVE_THRESHOLD');
   if (zeroSampleFraction !== null && zeroSampleFraction > 0.9) reviewWarnings.push('MOSTLY_DIGITAL_SILENCE');
   if (!run.transcript?.trim()) reviewWarnings.push('NO_OUTPUT_TRANSCRIPT');
+  if (run.transport?.inputTranscriptionModelRequested && !run.inputTranscript?.trim()) reviewWarnings.push('NO_INPUT_TRANSCRIPT_RECEIVED');
   return {
     status: packets.length ? 'audio_received' : 'no_audio',
     qualityStatus: 'not_assessed', reviewWarnings, zeroSampleFraction,

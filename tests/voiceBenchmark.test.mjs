@@ -6,6 +6,9 @@ import {readWav, toWav, summarize, outputFormat, BYTES_PER_SECOND} from '../scri
 import {collect} from '../scripts/voice-benchmark/run.mjs';
 import {generateSyntheticInput, SYNTHETIC_CASES} from '../scripts/voice-benchmark/synthetic.mjs';
 import {spawnSync} from 'node:child_process';
+import {mkdtempSync, writeFileSync, rmSync} from 'node:fs';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
 
 const samples = (durationMs, value = 1000) => {
   const result = Buffer.alloc(BYTES_PER_SECOND * durationMs / 1000);
@@ -136,6 +139,7 @@ test('OpenAI collection waits for drained output after session.close and retains
       socket = new Socket((ws, event) => {
         if (event.type === 'session.update') {
           assert.equal(event.session.audio.output.language, 'ko');
+          assert.equal(Object.hasOwn(event.session.audio.input, 'transcription'), false, 'ordinary comparison must not enable paid source transcription');
           queueMicrotask(() => ws.reply({type: 'session.updated'}));
         }
         if (event.type === 'session.input_audio_buffer.append' && ws.sent.filter(e => e.type === event.type).length === 1) {
@@ -246,4 +250,91 @@ test('synthetic CLI preflight works without a recording or key and run requires 
   const run = spawnSync(process.execPath, [...args, '--run'], {env, encoding: 'utf8', timeout: 3000});
   assert.equal(run.status, 1);
   assert.match(run.stderr, /No paid API calls were made/);
+});
+
+test('input diagnosis collects append-only source deltas through graceful close without feeding them into translation', async () => {
+  const input = samples(40);
+  let socket;
+  const session = {type: 'translation', model: 'gpt-realtime-translate', audio: {input: {transcription: {model: 'gpt-realtime-whisper'}}, output: {language: 'ja'}}};
+  const run = await collect({provider: 'openai', wav: toWav(input), source: 'ko', target: 'ja', key: 'test-only', diagnoseInput: true, timeoutMs: 1000,
+    socketFactory: () => socket = new Socket((ws, event) => {
+      if (event.type === 'session.update') {
+        assert.equal(event.session.audio.input.transcription.model, 'gpt-realtime-whisper');
+        ws.reply({type: 'session.updated', session});
+      }
+      if (event.type === 'session.input_audio_buffer.append') {
+        ws.reply({type: 'session.input_transcript.delta', delta: '예약을 ', elapsed_ms: 200});
+        ws.reply({type: 'session.input_transcript.delta', delta: '바꿔', elapsed_ms: 200});
+      }
+      if (event.type === 'session.close') setTimeout(() => {
+        ws.reply({type: 'session.input_transcript.delta', delta: ' 주세요.', elapsed_ms: 400});
+        ws.reply({type: 'session.output_transcript.delta', delta: '変更してください。'});
+        ws.reply({type: 'session.closed'});
+      }, 5);
+    })});
+  assert.equal(run.inputTranscript, '예약을 바꿔 주세요.');
+  assert.equal(run.transcript, '変更してください。');
+  assert.equal(run.transport.serverEventCounts['session.input_transcript.delta'], 3);
+  assert.equal(run.transport.serverSession.inputTranscriptionModel, 'gpt-realtime-whisper');
+  assert.deepEqual(Buffer.concat(socket.sent.filter(e => e.type === 'session.input_audio_buffer.append').map(e => Buffer.from(e.audio, 'base64'))), input);
+  assert.deepEqual([...new Set(socket.sent.map(e => e.type))], ['session.update', 'session.input_audio_buffer.append', 'session.close']);
+  assert.equal(summarize(run).reviewWarnings.includes('NO_INPUT_TRANSCRIPT_RECEIVED'), false);
+});
+
+test('input diagnosis stops before audio if the server does not confirm transcription and preserves that evidence', async () => {
+  let socket;
+  const session = {type: 'translation', model: 'gpt-realtime-translate', audio: {output: {language: 'ja'}}};
+  await assert.rejects(collect({provider: 'openai', wav: toWav(samples(20)), source: 'ko', target: 'ja', key: 'test-only', diagnoseInput: true,
+    socketFactory: () => socket = new Socket((ws, event) => {
+      if (event.type === 'session.update') ws.reply({type: 'session.updated', session});
+    })}), error => {
+    assert.match(error.message, /did not confirm/);
+    assert.equal(error.partialRun.transport.queuedPcmBytes, 0);
+    assert.equal(error.partialRun.transport.serverSession.inputTranscriptionModel, null);
+    return true;
+  });
+  assert.equal(socket.sent.some(e => e.type === 'session.input_audio_buffer.append'), false);
+});
+
+test('source evidence survives a later provider error and empty source transcript gets a diagnostic-only warning', async () => {
+  const session = {type: 'translation', model: 'gpt-realtime-translate', audio: {input: {transcription: {model: 'gpt-realtime-whisper'}}, output: {language: 'ja'}}};
+  await assert.rejects(collect({provider: 'openai', wav: toWav(samples(20)), source: 'ko', target: 'ja', key: 'test-only', diagnoseInput: true,
+    socketFactory: () => new Socket((ws, event) => {
+      if (event.type === 'session.update') ws.reply({type: 'session.updated', session});
+      if (event.type === 'session.close') {
+        ws.reply({type: 'session.input_transcript.delta', delta: '안녕하세요.'});
+        ws.reply({type: 'error', error: {code: 'server_error', message: 'do not expose raw provider message'}});
+      }
+    })}), error => {
+    assert.equal(error.message, 'openai: server_error');
+    assert.equal(error.partialRun.inputTranscript, '안녕하세요.');
+    assert.equal(error.partialRun.transport.serverEventCounts.error, 1);
+    return true;
+  });
+  const empty = {packets: [], stopMs: 0, doneMs: 10, transcript: '', inputTranscript: ''};
+  assert.equal(summarize(empty).reviewWarnings.includes('NO_INPUT_TRANSCRIPT_RECEIVED'), false);
+  assert.equal(summarize({...empty, transport: {inputTranscriptionModelRequested: 'gpt-realtime-whisper'}}).reviewWarnings.includes('NO_INPUT_TRANSCRIPT_RECEIVED'), true);
+});
+
+test('diagnostic CLI requires existing audio and OpenAI-only selection, preflights without a key and never generates speech', () => {
+  const dir = mkdtempSync(path.join(tmpdir(), 'voice-diagnostic-test-'));
+  const env = {...process.env}; delete env.OPENAI_API_KEY;
+  const script = new URL('../scripts/voice-benchmark/run.mjs', import.meta.url).pathname;
+  try {
+    const audio = path.join(dir, 'input.wav'); writeFileSync(audio, toWav(samples(20)));
+    const args = [script, '--audio', audio, '--source', 'ko', '--target', 'ja', '--provider', 'openai', '--diagnose-input'];
+    const preflight = spawnSync(process.execPath, args, {env, encoding: 'utf8', timeout: 3000});
+    assert.equal(preflight.status, 0, preflight.stderr);
+    const data = JSON.parse(preflight.stdout);
+    assert.equal(data.willCallPaidApis, false);
+    assert.equal(data.inputKind, 'provided_audio');
+    assert.equal(data.inputTranscriptionModel, 'gpt-realtime-whisper');
+    const missingKey = spawnSync(process.execPath, [...args, '--run'], {env, encoding: 'utf8', timeout: 3000});
+    assert.match(missingKey.stderr, /No paid API calls were made/);
+    for (const inputArgs of [['--synthetic', '--provider', 'openai'], ['--audio', audio]]) {
+      const invalid = spawnSync(process.execPath, [script, ...inputArgs, '--source', 'ko', '--target', 'ja', '--diagnose-input', '--run'], {env, encoding: 'utf8', timeout: 3000});
+      assert.equal(invalid.status, 1);
+      assert.match(invalid.stderr, /requires --provider openai and an existing --audio file/);
+    }
+  } finally { rmSync(dir, {recursive: true, force: true}); }
 });
