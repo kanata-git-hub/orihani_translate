@@ -7,6 +7,7 @@ import {createHash} from 'node:crypto';
 import {parseArgs} from 'node:util';
 import WebSocket from 'ws';
 import {readWav, toWav, summarize, BYTES_PER_SECOND} from './core.mjs';
+import {generateSyntheticInput, SYNTHETIC_CASES} from './synthetic.mjs';
 
 const OPENAI_URL = 'wss://api.openai.com/v1/realtime/translations?model=gpt-realtime-translate';
 const BASELINE_URL = 'wss://orihani-translate-610824131458.asia-northeast1.run.app/live';
@@ -99,22 +100,30 @@ export function collect({provider, wav, source, target, key, baselineUrl = BASEL
 }
 
 async function main() {
-  const {values} = parseArgs({options: {audio: {type: 'string'}, source: {type: 'string'}, target: {type: 'string'}, run: {type: 'boolean'}, 'openai-first': {type: 'boolean'}}});
-  if (!values.audio || !values.source || !values.target) throw new Error('Usage: node scripts/voice-benchmark/run.mjs --audio input.wav --source ko --target ja [--run]');
-  const wav = await fs.readFile(values.audio);
-  const {durationMs} = readWav(wav);
+  const {values} = parseArgs({options: {audio: {type: 'string'}, synthetic: {type: 'boolean'}, source: {type: 'string'}, target: {type: 'string'}, run: {type: 'boolean'}, 'openai-first': {type: 'boolean'}}});
+  if (Boolean(values.audio) === Boolean(values.synthetic) || !values.source || !values.target) throw new Error('Usage: node scripts/voice-benchmark/run.mjs (--audio input.wav | --synthetic) --source ko --target ja [--run]');
+  if (!LANGUAGES.has(values.source) || !LANGUAGES.has(values.target) || (values.source !== 'ko' && values.target !== 'ko') || values.source === values.target) throw new Error('Compare Korean to/from a supported target language.');
+  if (values.synthetic && (!Object.hasOwn(SYNTHETIC_CASES, values.source) || !Object.hasOwn(SYNTHETIC_CASES, values.target))) throw new Error('Synthetic comparison supports Korean and Japanese only.');
   const key = process.env.OPENAI_API_KEY;
+  let wav = values.audio ? await fs.readFile(values.audio) : null;
   if (!values.run) {
-    console.log(JSON.stringify({status: 'preflight_only', durationMs, openaiKeyAvailable: Boolean(key), willCallPaidApis: false}));
+    console.log(JSON.stringify({status: 'preflight_only', durationMs: wav ? readWav(wav).durationMs : null, inputKind: values.synthetic ? 'synthetic' : 'provided_audio', sampleText: values.synthetic ? SYNTHETIC_CASES[values.source].text : undefined, openaiKeyAvailable: Boolean(key), willCallPaidApis: false}));
     return;
   }
   // Fail before either provider is called if the comparison cannot run.
   if (!key) throw new Error('OPENAI_API_KEY is not connected. No paid API calls were made.');
+  let inputSource = {kind: 'provided_audio'};
+  if (values.synthetic) {
+    console.log('Creating AI-generated test speech (one additional OpenAI TTS request; excluded from translation timing).');
+    const generated = await generateSyntheticInput({source: values.source, key});
+    wav = generated.wav; inputSource = generated.provenance;
+  }
+  const {durationMs} = readWav(wav);
   const out = path.join(path.dirname(fileURLToPath(import.meta.url)), 'results', new Date().toISOString().replace(/[:.]/g, '-'));
   await fs.mkdir(out, {recursive: true, mode: 0o700});
   await fs.writeFile(path.join(out, 'source.wav'), wav, {mode: 0o600});
   const report = {measuredAt: new Date().toISOString(), source: values.source, target: values.target,
-    sourceSha256: createHash('sha256').update(wav).digest('hex'), sourceDurationMs: durationMs,
+    sourceSha256: createHash('sha256').update(wav).digest('hex'), sourceDurationMs: durationMs, inputSource,
     baselineModels: ['gemini-3.6-flash', 'gemini-3.1-flash-tts-preview'], candidateModel: 'gpt-realtime-translate',
     method: 'Ready connections. Gemini receives full WAV after stop; OpenAI receives identical PCM in real time while playback is held until stop. No prior conversation context. Latency is measured from this machine, not a phone.',
     limits: 'Queue metrics simulate app scheduling; they do not prove gapless audible speech. Listen to output WAVs and test a real phone before switching. Hindsight buffering is an offline lower bound. No quality score is assigned automatically.',

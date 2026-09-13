@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
 import {readWav, toWav, summarize, BYTES_PER_SECOND} from '../scripts/voice-benchmark/core.mjs';
 import {collect} from '../scripts/voice-benchmark/run.mjs';
+import {generateSyntheticInput, SYNTHETIC_CASES} from '../scripts/voice-benchmark/synthetic.mjs';
+import {spawnSync} from 'node:child_process';
 
 const samples = (durationMs, value = 1000) => {
   const result = Buffer.alloc(BYTES_PER_SECOND * durationMs / 1000);
@@ -114,4 +116,59 @@ test('premature connection close and timeout cannot count as completed translati
   const args = {provider: 'openai', wav: toWav(samples(20)), source: 'ko', target: 'ja', key: 'test-only', timeoutMs: 20};
   await assert.rejects(collect({...args, socketFactory: () => new Socket(ws => ws.close())}), /before output completed/);
   await assert.rejects(collect({...args, socketFactory: () => new Socket(() => {})}), /Timed out/);
+});
+
+test('synthetic fixtures retain identical PCM, source text and AI provenance in both languages', async () => {
+  for (const source of ['ko', 'ja']) {
+    const pcm = samples(200);
+    let calls = 0;
+    const result = await generateSyntheticInput({source, key: 'test-only', fetchImpl: async (url, options) => {
+      calls++;
+      assert.equal(url, 'https://api.openai.com/v1/audio/speech');
+      assert.equal(options.headers.Authorization, 'Bearer test-only');
+      assert.equal(options.redirect, 'error');
+      const body = JSON.parse(options.body);
+      assert.equal(body.response_format, 'pcm');
+      assert.equal(body.input, SYNTHETIC_CASES[source].text);
+      return {ok: true, arrayBuffer: async () => pcm};
+    }});
+    assert.equal(calls, 1);
+    assert.deepEqual(readWav(result.wav).pcm, pcm);
+    assert.equal(result.provenance.kind, 'synthetic');
+    assert.equal(result.provenance.text, SYNTHETIC_CASES[source].text);
+    assert.match(result.provenance.limits, /may bias results/);
+    assert.equal(JSON.stringify(result.provenance).includes('test-only'), false);
+  }
+});
+
+test('synthetic generation blocks missing keys and unsupported language before a request', async () => {
+  const fetchImpl = () => { throw new Error('unexpected request'); };
+  await assert.rejects(generateSyntheticInput({source: 'ko', fetchImpl}), /OPENAI_API_KEY/);
+  await assert.rejects(generateSyntheticInput({source: 'en', key: 'test-only', fetchImpl}), /ko or ja/);
+});
+
+test('synthetic request failures hide raw responses and never retry or silently truncate', async () => {
+  let calls = 0;
+  await assert.rejects(generateSyntheticInput({source: 'ko', key: 'test-only', fetchImpl: async () => {
+    calls++; return {ok: false, status: 401, text: () => { throw new Error('do not read raw response'); }};
+  }}), /^Error: Synthetic speech request failed \(HTTP 401\)\.$/);
+  assert.equal(calls, 1);
+  for (const pcm of [Buffer.alloc(0), Buffer.alloc(3), samples(30001)]) {
+    await assert.rejects(generateSyntheticInput({source: 'ja', key: 'test-only', fetchImpl: async () => ({ok: true, arrayBuffer: async () => pcm})}));
+  }
+});
+
+test('synthetic CLI preflight works without a recording or key and run requires a key', () => {
+  const env = {...process.env}; delete env.OPENAI_API_KEY;
+  const script = new URL('../scripts/voice-benchmark/run.mjs', import.meta.url);
+  const args = [script.pathname, '--synthetic', '--source', 'ko', '--target', 'ja'];
+  const preflight = spawnSync(process.execPath, args, {env, encoding: 'utf8', timeout: 3000});
+  assert.equal(preflight.status, 0, preflight.stderr);
+  const data = JSON.parse(preflight.stdout);
+  assert.equal(data.willCallPaidApis, false);
+  assert.equal(data.inputKind, 'synthetic');
+  assert.equal(data.sampleText, SYNTHETIC_CASES.ko.text);
+  const run = spawnSync(process.execPath, [...args, '--run'], {env, encoding: 'utf8', timeout: 3000});
+  assert.equal(run.status, 1);
+  assert.match(run.stderr, /No paid API calls were made/);
 });
