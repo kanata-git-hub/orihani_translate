@@ -6,14 +6,16 @@ if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
   return 1
 fi
 set -euo pipefail
-if ! { (( $# == 0 )) || { (( $# == 1 )) && [[ "$1" == '--synthetic' ]]; } || { (( $# == 2 )) && [[ "$1" == '--openai-audio' || "$1" == '--diagnose-input' ]]; }; }; then
-  printf '%s\n' '사용법: bash scripts/voice-benchmark/cloud-shell.sh [--synthetic | --openai-audio 기존원음.wav | --diagnose-input 기존원음.wav]' >&2
+if ! { (( $# == 0 )) || { (( $# == 1 )) && [[ "$1" == '--synthetic' ]]; } || { (( $# == 2 )) && [[ "$1" == '--openai-audio' || "$1" == '--diagnose-input' || "$1" == '--live-audio' ]]; }; }; then
+  printf '%s\n' '사용법: bash scripts/voice-benchmark/cloud-shell.sh [--synthetic | --openai-audio 기존원음.wav | --diagnose-input 기존원음.wav | --live-audio 기존원음.wav]' >&2
   exit 1
 fi
 umask 077
 unset OPENAI_API_KEY
 benchmark_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 benchmark_root=$(cd -- "$benchmark_dir/../.." && pwd)
+benchmark_runner="$benchmark_dir/run.mjs"
+if [[ "${1:-}" == '--live-audio' ]]; then benchmark_runner="$benchmark_dir/live.mjs"; fi
 benchmark_key=''
 benchmark_wav=''
 cleanup() {
@@ -32,7 +34,7 @@ if ! node --input-type=module -e "import('ws')" >/dev/null 2>&1; then
   npm ci --no-audit --no-fund
 fi
 
-if [[ "${1:-}" == '--openai-audio' || "${1:-}" == '--diagnose-input' ]]; then
+if [[ "${1:-}" == '--openai-audio' || "${1:-}" == '--diagnose-input' || "${1:-}" == '--live-audio' ]]; then
   benchmark_input=$2
   if [[ -z "$benchmark_input" ]]; then
     printf '%s\n' '재검사할 기존 한국어 원음의 경로를 입력하세요.' >&2
@@ -72,7 +74,7 @@ else
   fi
   benchmark_input=$(realpath -- "$benchmark_input")
   # Check a ready WAV first; only require ffmpeg if conversion is necessary.
-  if ! node "$benchmark_dir/run.mjs" --audio "$benchmark_input" "${benchmark_args[@]}" >/dev/null 2>&1; then
+  if ! node "$benchmark_runner" --audio "$benchmark_input" "${benchmark_args[@]}" >/dev/null 2>&1; then
     if ! command -v ffmpeg >/dev/null; then
       printf '%s\n' '이 녹음은 변환이 필요합니다. sudo apt-get update && sudo apt-get install -y ffmpeg 실행 후 다시 시작하세요.' >&2
       exit 1
@@ -84,9 +86,12 @@ else
   fi
   benchmark_args+=(--audio "$benchmark_input")
 fi
-node "$benchmark_dir/run.mjs" "${benchmark_args[@]}"
+node "$benchmark_runner" "${benchmark_args[@]}"
 
-if [[ "${1:-}" == '--diagnose-input' ]]; then
+if [[ "${1:-}" == '--live-audio' ]]; then
+  printf '%s\n' '키 입력 후 GPT-Live 1만 1회 시험합니다. 기존 원음을 사용하며 Gemini·시험 음성 생성·별도 받아쓰기는 호출하지 않습니다.'
+  printf '%s\n' '원음 재생 길이 + 30초 동안 음성을 수신한 뒤 연결을 종료합니다. 연결 시간에 따른 API 사용료가 발생합니다.'
+elif [[ "${1:-}" == '--diagnose-input' ]]; then
   printf '%s\n' '키 입력 후 번역 연결 1회에 원음 받아쓰기를 추가합니다. 번역과 별도 받아쓰기 사용료가 발생합니다.'
   printf '%s\n' '이번 실행은 입력 인식 진단이며 속도 비교용이 아닙니다. 결과를 터미널에 표시합니다.'
 elif [[ "${1:-}" == '--openai-audio' ]]; then
@@ -100,8 +105,14 @@ if [[ -z "$benchmark_key" || "$benchmark_key" == *[[:space:]]* ]]; then
   printf '%s\n' '키가 비어 있거나 공백이 들어 있습니다. API를 호출하지 않았습니다.' >&2
   exit 1
 fi
-OPENAI_API_KEY="$benchmark_key" node "$benchmark_dir/run.mjs" "${benchmark_args[@]}" --run
-if [[ "${1:-}" == '--diagnose-input' ]]; then
+# Preserve the result instructions even when the API run exits unsuccessfully.
+benchmark_status=0
+OPENAI_API_KEY="$benchmark_key" node "$benchmark_runner" "${benchmark_args[@]}" --run || benchmark_status=$?
+unset benchmark_key
+if [[ "${1:-}" == '--live-audio' ]]; then
+  printf '%s\n' '원음 받아쓰기, 번역문, 시험 기록이 나온 부분을 복사해 대화에 보내 주세요.'
+  printf '%s\n' '들을 음성은 결과 폴더의 live.wav입니다. 앞부분 무음도 보존한 원본은 live-raw.wav입니다.'
+elif [[ "${1:-}" == '--diagnose-input' ]]; then
   printf '%s\n' '원음 받아쓰기, 일본어 번역문, 입력 진단 기록이 나온 부분을 복사해 대화에 보내 주세요.'
 elif [[ "${1:-}" == '--openai-audio' ]]; then
   printf '%s\n' '표시된 결과 폴더의 report.json, source.wav, openai.wav를 다운로드해 대화에 첨부해 주세요.'
@@ -109,3 +120,4 @@ else
   printf '%s\n' '표시된 결과 폴더의 report.json, source.wav, baseline.wav, openai.wav를 다운로드해 대화에 첨부해 주세요.'
 fi
 printf '%s\n' '키는 파일에 저장하지 않았습니다. 이 입력 단계만으로 Codex에 키가 연결되는 것은 아닙니다.'
+exit "$benchmark_status"

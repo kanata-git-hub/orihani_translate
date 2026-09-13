@@ -7,6 +7,7 @@
 
 - 기준: 현재 앱의 `/live`에 같은 녹음 파일을 전송합니다. 코드 검토 기준 커밋은 `94cea53`이며, `gemini-3.6-flash` 번역과 `gemini-3.1-flash-tts-preview` 음성 출력을 사용합니다. 실측 전 최신 코드와 배포를 다시 확인하세요.
 - 후보: `gpt-realtime-translate`에 동일 PCM을 실제 발화 속도로 보내고, 정지 시 `session.close`를 보냅니다. `session.closed`까지 남은 음성과 문자를 모두 받아 저장합니다.
+- 별도 후보: `--live-audio`는 **`gpt-live-1`** 전용 실행입니다. 아래 GPT-Live 절차를 사용하며 기본 Translate 비교를 바꾸지 않습니다.
 - 입력은 권장 길이인 200ms 단위로 전송하고 마지막 남은 샘플도 보존합니다. `transport`에는 입력과 전송 큐에 넣은 PCM의 해시·크기, 서버의 모델·출력 언어, 종료 확인 여부를 기록합니다. 전송 큐 기록만으로 서버의 음성 인식 성공을 보장하지는 않습니다.
 - 출력 이벤트에 `sample_rate`, `channels`, `format`이 있으면 WAV 저장과 재생 시간 계산에 반영합니다. 없으면 24kHz 모노 PCM16을 기본값으로 쓰고 `outputFormat`의 선언 여부를 기록합니다. 출력 형식이 도중에 바뀌면 잘못된 WAV를 저장하지 않고 실패로 처리합니다.
 - 후보 음성이 말하는 도중 도착하더라도 정지까지 보관하는 워키토키 방식을 계산합니다. 단순히 음소거했다가 해제해서 앞부분이 사라지는 방식이 아닙니다.
@@ -65,6 +66,33 @@ git pull --ff-only origin chore/voice-translation-benchmark && bash scripts/voic
 
 새 결과 폴더의 `report.json`, `source.wav`, `openai.wav`를 다운로드하세요. 보고서의 원음 해시가 이전 결과와 같은지 확인해야 같은 입력의 재검사라고 볼 수 있습니다. 이 실행의 `inputSource.kind`는 파일을 제공했다는 뜻의 `provided_audio`이며, 원래 합성한 음성인지 여부는 이전 보고서에서 확인합니다.
 
+### GPT-Live 1로 같은 원음 시험
+
+비교용 저장소 폴더에서 기존 한국어 원음 경로를 넣어 실행합니다. 키는 이후 나타나는 숨김 입력에만 붙여넣습니다.
+
+```sh
+git pull --ff-only origin chore/voice-translation-benchmark && bash scripts/voice-benchmark/cloud-shell.sh --live-audio /전체/경로/source.wav
+```
+
+이 모드는 `gpt-live-1` 연결 한 번만 사용합니다. Gemini, 시험 입력용 TTS, 별도 받아쓰기 모델, Responses 백엔드를 호출하지 않으며 자동 재시도나 다른 모델로의 대체도 없습니다. **Live 연결 시간에 따른 API 사용료가 발생합니다.** 최대 30초 원음을 실제 발화 속도로 전송하고, 녹음 종료 뒤 30초간 무음을 추가 전송해 늦게 나오는 번역을 받습니다. 입력과 추가 무음의 크기를 분리해 기록합니다. 세션 시작과 최종 종료 확인에는 각각 15초 제한이 있으며, 연결 장애 시 최종 과금 시간은 확인되지 않을 수 있습니다.
+
+공식 Live WebSocket의 `session.start` → `session.started` → `session.input_audio.append` 절차를 사용합니다. 모델·24kHz 모노 PCM16·`marin` 음성·`store: false`·클라이언트 위임을 명시합니다. 일반적인 통역 지시만 주고 시험 원문이나 정답 번역문은 프롬프트에 넣지 않습니다. 서버가 명시적으로 다른 모델·형식·저장·위임 설정을 반환하면 원음 전송 전에 중단합니다. 별도 도구 작업을 요청하면 실행하지 않고 실패로 남깁니다.
+
+터미널에 **원음 받아쓰기, 번역문, 시험 기록**이 표시됩니다. 이 부분을 대화에 복사하세요. 내장 받아쓰기 역시 사람이 정확성을 확인해야 합니다. `report.json`과 두 출력 WAV는 Git 제외 결과 폴더에 저장되며 공개 저장소에 올리지 않습니다.
+
+- `live-raw.wav`: 도착한 모든 음성 샘플을 순서대로 보존합니다. 앞부분의 무음도 포함합니다.
+- `live.wav`: 첫 신호보다 200ms 앞에서 시작하도록 초기 저음량 구간만 제외합니다. 문장 중간의 쉼이나 끊김은 편집하지 않습니다. 작은 말소리가 기준값보다 낮을 수 있으므로 원본도 확인해야 합니다. 두 WAV에는 네트워크 수신 간격을 삽입하지 않습니다.
+- `playbackEstimate`: 첫 신호가 도착한 시점에만 앞부분 무음을 제외하는 실험용 재생 방식의 추정값입니다. 녹음 중 받은 번역은 정지까지 보관하고, 기존 150ms 시작 버퍼·50ms 보충 기준으로 계산합니다. 도착하지 않은 음성을 미리 재생하는 계산은 하지 않습니다. 운영 앱에 적용된 기능이나 실물 휴대폰 실측은 아닙니다.
+- `stopToFirstSignalPacketMs`: 신호가 든 패킷 도착 시각으로, 실제 말소리 시작과 다릅니다. 최상위 `stopToFirstSignalEstimateMs`는 초기 무음까지 보존한 재생 추정값입니다.
+- `stopToSessionClosedMs`: 정지 후 수신 창과 최종 종료까지의 시간입니다. **번역 완료 시간으로 해석하면 안 됩니다.** Live에는 발화 종료 이벤트가 없어 `turnCompletionConfirmed`는 항상 false이며, 마지막 문장이 완결됐는지는 음성과 번역문으로 확인합니다.
+- `transport.usageSeconds`: 마지막 누적 사용량입니다. 이전 사용량 이벤트와 합산하지 않으며, 최종 종료 이벤트에서 확인되었는지는 `finalUsageConfirmed`로 구분합니다. 실패해도 받은 문자·음성·사용량 근거는 가능한 범위에서 보존합니다.
+
+기존 Gemini 결과와 원음 해시가 일치하는지 확인해야 합니다. 이 한 번의 합성 음성 검사로 품질 동등성, 휴대폰에서의 속도 개선, 끊김 없음을 보장하지 않습니다. 초기 품질이 괜찮으면 한국어·일본어의 여러 실제 발화와 반복 측정으로 다음 판단을 진행합니다. 운영 앱의 모델과 배포는 변경하지 않습니다.
+
+직접 실행할 때는 `node scripts/voice-benchmark/live.mjs --audio input.wav --source ko --target ja`로 과금 없는 사전 검사를 할 수 있습니다. 키를 실행 환경에 연결한 뒤 `--run`을 추가하면 실제 요청입니다. 반대 방향은 `--source ja --target ko`입니다.
+
+출처(2026-09-13 확인): [Live 연결 규격](https://developers.openai.com/api/reference/resources/live/primary-websocket), [음성 전송과 재생](https://developers.openai.com/api/docs/guides/voice-websockets?api=live), [세션 종료·누적 사용량](https://developers.openai.com/api/docs/guides/live-conversations), [통역 프롬프트 지침](https://developers.openai.com/api/docs/guides/live-prompting).
+
 ### 원음 인식 진단
 
 정상적인 번역이 나오지 않으면 같은 비교를 반복하기 전에, 이미 저장한 한국어 `source.wav`로 아래 진단을 1회 실행할 수 있습니다.
@@ -116,7 +144,7 @@ node scripts/voice-benchmark/run.mjs --synthetic --source ko --target ja --run
 
 검사 문장에는 주문 변경, “하지 말아 주세요”, 날짜·시각·인원수·가격, 역·호텔 이름, 문장 끝에서 뜻이 바뀌는 조건, 일본어가 섞인 한국어, 짧은 침묵 뒤 이어 말하기를 포함합니다.
 
-## 공식 문서에서 확인한 제약
+## Translate 후보의 공식 문서에서 확인한 제약
 
 - 한국어·일본어 입출력 지원. 번역과 음성이 함께 생성됩니다.
 - 번역 전용 세션은 일반 Realtime 대화 세션과 다르며 `response.create`를 사용하지 않습니다.
@@ -135,4 +163,5 @@ node scripts/voice-benchmark/run.mjs --synthetic --source ko --target ja --run
 ```sh
 node --test tests/voiceBenchmark.test.mjs
 node --test tests/voiceConnectivity.test.mjs
+node --test tests/voiceLive.test.mjs
 ```
