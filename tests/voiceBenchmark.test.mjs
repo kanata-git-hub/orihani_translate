@@ -1,7 +1,8 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {EventEmitter} from 'node:events';
-import {readWav, toWav, summarize, BYTES_PER_SECOND} from '../scripts/voice-benchmark/core.mjs';
+import {createHash} from 'node:crypto';
+import {readWav, toWav, summarize, outputFormat, BYTES_PER_SECOND} from '../scripts/voice-benchmark/core.mjs';
 import {collect} from '../scripts/voice-benchmark/run.mjs';
 import {generateSyntheticInput, SYNTHETIC_CASES} from '../scripts/voice-benchmark/synthetic.mjs';
 import {spawnSync} from 'node:child_process';
@@ -43,6 +44,36 @@ test('silent output is not mistaken for audible speech', () => {
   assert.equal(result.stopToFirstSignalEstimateMs, null);
 });
 
+test('mostly silent output reports delayed signal separately from early packet arrival without assigning a quality pass', () => {
+  const result = summarize({packets: [{atMs: 0, pcm: samples(2000, 0)}, {atMs: 500, pcm: samples(20)}], stopMs: 100, doneMs: 600, transcript: 'えっと、'});
+  assert.equal(result.status, 'audio_received');
+  assert.equal(result.qualityStatus, 'not_assessed');
+  assert.equal(result.stopToFirstPacketMs, 0);
+  assert.equal(result.stopToFirstSignalPacketMs, 400);
+  assert.equal(result.stopToFirstSignalEstimateMs, 2150);
+  assert.ok(result.zeroSampleFraction > 0.99);
+  assert.deepEqual(result.reviewWarnings, ['MOSTLY_DIGITAL_SILENCE']);
+});
+
+test('output metadata controls WAV headers, duration and stereo signal offset while input remains fixed at 24 kHz mono', () => {
+  const audioFormat = outputFormat({format: 'pcm16', sample_rate: 48000, channels: 2});
+  const pcm = Buffer.alloc(48000 * 2 * 2 / 10);
+  pcm.writeInt16LE(1000, 2400 * 4 + 2);
+  const wav = toWav(pcm, audioFormat);
+  assert.equal(wav.readUInt16LE(22), 2);
+  assert.equal(wav.readUInt32LE(24), 48000);
+  assert.equal(wav.readUInt32LE(28), 192000);
+  assert.equal(wav.readUInt16LE(32), 4);
+  assert.deepEqual(wav.subarray(44), pcm);
+  const result = summarize({packets: [{atMs: 0, pcm, audioFormat}], outputFormat: audioFormat, stopMs: 0, doneMs: 100});
+  assert.equal(result.audioDurationMs, 100);
+  assert.equal(result.stopToFirstSignalEstimateMs, 200);
+  assert.equal(result.outputFormat.sampleRateDeclared, true);
+  assert.throws(() => readWav(wav), /mono PCM16/);
+  assert.throws(() => toWav(Buffer.alloc(2), audioFormat), /sample frame/);
+  for (const metadata of [{format: 'opus'}, {sample_rate: 0}, {channels: 1.5}]) assert.throws(() => outputFormat(metadata), /Unsupported/);
+});
+
 class Socket extends EventEmitter {
   constructor(handle) { super(); this.handle = handle; this.sent = []; queueMicrotask(() => this.emit('open')); }
   send(raw) { const value = JSON.parse(raw); this.sent.push(value); this.handle(this, value); }
@@ -50,6 +81,50 @@ class Socket extends EventEmitter {
   close() { this.closed = true; this.emit('close'); }
   terminate() { this.terminated = true; this.close(); }
 }
+
+test('OpenAI queues complete 200 ms input frames plus the remainder and preserves output metadata across deltas', async () => {
+  const input = samples(500), output = samples(20);
+  let socket;
+  const session = {type: 'translation', model: 'gpt-realtime-translate', audio: {output: {language: 'ja'}}};
+  const result = await collect({provider: 'openai', wav: toWav(input), source: 'ko', target: 'ja', key: 'test-only', timeoutMs: 2000,
+    socketFactory: () => socket = new Socket((ws, event) => {
+      if (event.type === 'session.update') ws.reply({type: 'session.updated', session});
+      if (event.type === 'session.close') {
+        ws.reply({type: 'session.output_audio.delta', delta: output.toString('base64'), format: 'pcm16', sample_rate: 48000, channels: 2});
+        ws.reply({type: 'session.output_audio.delta', delta: output.toString('base64')});
+        ws.reply({type: 'session.closed'});
+      }
+    })});
+  const chunks = socket.sent.filter(e => e.type === 'session.input_audio_buffer.append').map(e => Buffer.from(e.audio, 'base64'));
+  assert.deepEqual(chunks.map(c => c.length), [9600, 9600, 4800]);
+  assert.deepEqual(Buffer.concat(chunks), input);
+  assert.equal(result.transport.queuedPcmBytes, input.length);
+  assert.equal(result.transport.queuedChunks, 3);
+  assert.equal(result.transport.queuedPcmSha256, createHash('sha256').update(input).digest('hex'));
+  assert.equal(result.transport.queuedPcmSha256, result.transport.inputPcmSha256);
+  assert.equal(result.transport.closeRequested, true);
+  assert.equal(result.transport.closeConfirmed, true);
+  assert.equal(result.transport.serverSession.targetLanguage, 'ja');
+  assert.ok(result.stopMs - result.setupMs >= 490, 'simulate capture time before sending the final frame');
+  assert.deepEqual(result.packets[0].audioFormat, result.packets[1].audioFormat);
+  assert.equal(result.outputFormat.sampleRate, 48000);
+  assert.equal(result.outputFormat.channelsDeclared, true);
+  assert.equal(summarize(result).audioDurationMs, 10);
+});
+
+test('mismatched server session and changing output format fail instead of producing a misleading recording', async () => {
+  const args = {provider: 'openai', wav: toWav(samples(20)), source: 'ko', target: 'ja', key: 'test-only', timeoutMs: 1000};
+  await assert.rejects(collect({...args, socketFactory: () => new Socket((ws, event) => {
+    if (event.type === 'session.update') ws.reply({type: 'session.updated', session: {model: 'gpt-realtime-translate', type: 'translation', audio: {output: {language: 'ko'}}}});
+  })}), /does not match/);
+  await assert.rejects(collect({...args, socketFactory: () => new Socket((ws, event) => {
+    if (event.type === 'session.update') ws.reply({type: 'session.updated'});
+    if (event.type === 'session.close') {
+      ws.reply({type: 'session.output_audio.delta', delta: samples(20).toString('base64'), sample_rate: 48000});
+      ws.reply({type: 'session.output_audio.delta', delta: samples(20).toString('base64'), sample_rate: 24000});
+    }
+  })}), /format changed/);
+});
 
 test('OpenAI collection waits for drained output after session.close and retains every sample and transcript delta', async () => {
   const input = samples(40), first = samples(20), last = samples(30, 2000);

@@ -34,13 +34,22 @@ export function readWav(wav) {
   return {pcm, durationMs: pcm.length / BYTES_PER_SECOND * 1000};
 }
 
-export function toWav(pcm) {
-  if (pcm.length % 2) throw new Error('Incomplete PCM16 sample.');
+export function outputFormat(metadata = {}) {
+  const format = metadata.format ?? 'pcm16';
+  const sampleRate = metadata.sample_rate ?? 24000;
+  const channels = metadata.channels ?? 1;
+  if (format !== 'pcm16' || !Number.isInteger(sampleRate) || sampleRate < 8000 || sampleRate > 192000 || !Number.isInteger(channels) || channels < 1 || channels > 8) throw new Error('Unsupported output audio format.');
+  return {format, sampleRate, channels, sampleRateDeclared: metadata.sample_rate !== undefined, channelsDeclared: metadata.channels !== undefined};
+}
+
+export function toWav(pcm, {sampleRate = SAMPLE_RATE, channels = 1} = {}) {
+  outputFormat({sample_rate: sampleRate, channels});
+  if (pcm.length % (2 * channels)) throw new Error('Incomplete PCM16 sample frame.');
   const header = Buffer.alloc(44);
   header.write('RIFF'); header.writeUInt32LE(36 + pcm.length, 4); header.write('WAVEfmt ', 8);
-  header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20); header.writeUInt16LE(1, 22);
-  header.writeUInt32LE(SAMPLE_RATE, 24); header.writeUInt32LE(BYTES_PER_SECOND, 28);
-  header.writeUInt16LE(2, 32); header.writeUInt16LE(16, 34);
+  header.writeUInt32LE(16, 16); header.writeUInt16LE(1, 20); header.writeUInt16LE(channels, 22);
+  header.writeUInt32LE(sampleRate, 24); header.writeUInt32LE(sampleRate * channels * 2, 28);
+  header.writeUInt16LE(channels * 2, 32); header.writeUInt16LE(16, 34);
   header.write('data', 36); header.writeUInt32LE(pcm.length, 40);
   return Buffer.concat([header, pcm]);
 }
@@ -49,11 +58,14 @@ export function summarize(run) {
   const {packets, stopMs, doneMs} = run;
   let next = 0, firstStart = null, firstSignal = null, totalAudioMs = 0;
   let hindsightStart = stopMs;
+  let firstSignalPacket = null, zeroSamples = 0, sampleCount = 0;
   const gaps = [];
   for (const packet of packets) {
-    if (packet.pcm.length % 2) throw new Error('Incomplete output PCM16 sample.');
+    const {sampleRate, channels} = packet.audioFormat ?? {sampleRate: SAMPLE_RATE, channels: 1};
+    const bytesPerSecond = sampleRate * channels * 2;
+    if (packet.pcm.length % (channels * 2)) throw new Error('Incomplete output PCM16 sample frame.');
     const received = Math.max(stopMs, packet.atMs);
-    const duration = packet.pcm.length / BYTES_PER_SECOND * 1000;
+    const duration = packet.pcm.length / bytesPerSecond * 1000;
     // Reproduce the app's 150 ms initial queue and 50 ms refill threshold.
     // While the speaker is recording, received audio is held, not discarded.
     if (next === 0 || next < received + 50) {
@@ -62,23 +74,33 @@ export function summarize(run) {
       next = start;
     }
     firstStart ??= next;
-    if (firstSignal === null) {
-      for (let i = 0; i < packet.pcm.length; i += 2) {
-        if (Math.abs(packet.pcm.readInt16LE(i)) > 256) {
-          firstSignal = next + i / BYTES_PER_SECOND * 1000;
-          break;
-        }
+    for (let i = 0; i < packet.pcm.length; i += 2) {
+      const value = packet.pcm.readInt16LE(i);
+      sampleCount++;
+      if (value === 0) zeroSamples++;
+      if (firstSignal === null && Math.abs(value) > 256) {
+        firstSignal = next + Math.floor(i / (channels * 2)) / sampleRate * 1000;
+        firstSignalPacket = Math.max(0, packet.atMs - stopMs);
       }
     }
     hindsightStart = Math.max(hindsightStart, packet.atMs - totalAudioMs);
     totalAudioMs += duration;
     next += duration;
   }
+  const zeroSampleFraction = sampleCount ? zeroSamples / sampleCount : null;
+  const reviewWarnings = [];
+  if (firstSignal === null) reviewWarnings.push('NO_SIGNAL_ABOVE_THRESHOLD');
+  if (zeroSampleFraction !== null && zeroSampleFraction > 0.9) reviewWarnings.push('MOSTLY_DIGITAL_SILENCE');
+  if (!run.transcript?.trim()) reviewWarnings.push('NO_OUTPUT_TRANSCRIPT');
   return {
     status: packets.length ? 'audio_received' : 'no_audio',
+    qualityStatus: 'not_assessed', reviewWarnings, zeroSampleFraction,
+    outputFormat: run.outputFormat ?? null,
+    transport: run.transport ?? null,
     stopToFirstPacketMs: packets.length ? Math.max(0, packets[0].atMs - stopMs) : null,
     stopToFirstScheduledAudioMs: firstStart === null ? null : firstStart - stopMs,
     stopToFirstSignalEstimateMs: firstSignal === null ? null : firstSignal - stopMs,
+    stopToFirstSignalPacketMs: firstSignalPacket,
     stopToCompleteMs: doneMs - stopMs,
     audioDurationMs: totalAudioMs,
     simulatedQueueGapCount: gaps.length,
@@ -88,6 +110,6 @@ export function summarize(run) {
     transcript: run.transcript,
     inputTranscript: run.inputTranscript,
     setupMs: run.setupMs,
-    packetTimeline: packets.map(p => ({afterStopMs: p.atMs - stopMs, durationMs: p.pcm.length / BYTES_PER_SECOND * 1000})),
+    packetTimeline: packets.map(p => ({afterStopMs: p.atMs - stopMs, durationMs: p.pcm.length / ((p.audioFormat?.sampleRate ?? SAMPLE_RATE) * (p.audioFormat?.channels ?? 1) * 2) * 1000})),
   };
 }
