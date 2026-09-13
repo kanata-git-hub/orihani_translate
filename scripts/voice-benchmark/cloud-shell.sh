@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Run as a child shell so the key never enters the interactive shell's history or environment.
+set +x
+if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
+  printf '%s\n' 'source 대신 bash scripts/voice-benchmark/cloud-shell.sh 로 실행하세요.' >&2
+  return 1
+fi
+set -euo pipefail
+umask 077
+unset OPENAI_API_KEY
+benchmark_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+benchmark_root=$(cd -- "$benchmark_dir/../.." && pwd)
+benchmark_key=''
+benchmark_wav=''
+cleanup() {
+  unset benchmark_key
+  if [[ -n "$benchmark_wav" ]]; then rm -f -- "$benchmark_wav"; fi
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+exec 3</dev/tty
+
+node -e 'if (Number(process.versions.node.split(".")[0]) < 20) { console.error("Node 20 이상이 필요합니다. 검증 환경은 Node 24입니다."); process.exit(1); }'
+cd -- "$benchmark_root"
+if ! node --input-type=module -e "import('ws')" >/dev/null 2>&1; then
+  printf '%s\n' '비교 도구의 의존성을 설치합니다. 아직 API를 호출하지 않습니다.'
+  npm ci --no-audit --no-fund
+fi
+
+printf '%s\n' '30초 이내의 본인 녹음을 Cloud Shell에 업로드해 주세요.'
+read -r -p '녹음 파일 경로 (Enter: ~/voice.m4a): ' benchmark_input <&3
+benchmark_input=${benchmark_input:-"$HOME/voice.m4a"}
+if [[ "$benchmark_input" == '~/'* ]]; then benchmark_input="$HOME/${benchmark_input:2}"; fi
+if [[ ! -f "$benchmark_input" ]]; then
+  printf '%s\n' '녹음 파일을 찾지 못했습니다. 업로드 후 표시된 전체 경로를 입력하세요.' >&2
+  exit 1
+fi
+benchmark_input=$(realpath -- "$benchmark_input")
+read -r -p '번역 방향 (1: 한국어→일본어, 2: 일본어→한국어, Enter: 1): ' benchmark_direction <&3
+case "$benchmark_direction" in
+  ''|1) benchmark_source=ko; benchmark_target=ja ;;
+  2) benchmark_source=ja; benchmark_target=ko ;;
+  *) printf '%s\n' '1 또는 2를 입력하세요.' >&2; exit 1 ;;
+esac
+
+# Check a ready WAV first; only require ffmpeg if conversion is necessary.
+if ! node "$benchmark_dir/run.mjs" --audio "$benchmark_input" --source "$benchmark_source" --target "$benchmark_target" >/dev/null 2>&1; then
+  if ! command -v ffmpeg >/dev/null; then
+    printf '%s\n' '이 녹음은 변환이 필요합니다. sudo apt-get update && sudo apt-get install -y ffmpeg 실행 후 다시 시작하세요.' >&2
+    exit 1
+  fi
+  mkdir -p -- "$benchmark_dir/inputs"
+  benchmark_wav=$(mktemp "$benchmark_dir/inputs/converted-XXXXXXXX.wav")
+  ffmpeg -nostdin -hide_banner -loglevel error -y -i "$benchmark_input" -vn -ar 24000 -ac 1 -c:a pcm_s16le "$benchmark_wav"
+  benchmark_input=$benchmark_wav
+fi
+node "$benchmark_dir/run.mjs" --audio "$benchmark_input" --source "$benchmark_source" --target "$benchmark_target"
+
+printf '%s\n' '키 입력 후 동일 녹음으로 Gemini와 OpenAI에 각각 1회 요청합니다. API 사용료가 발생합니다.'
+read -r -s -p 'OpenAI API 키 (화면에 표시되지 않음): ' benchmark_key <&3
+printf '\n'
+if [[ -z "$benchmark_key" || "$benchmark_key" == *[[:space:]]* ]]; then
+  printf '%s\n' '키가 비어 있거나 공백이 들어 있습니다. API를 호출하지 않았습니다.' >&2
+  exit 1
+fi
+OPENAI_API_KEY="$benchmark_key" node "$benchmark_dir/run.mjs" --audio "$benchmark_input" --source "$benchmark_source" --target "$benchmark_target" --run
+printf '%s\n' '표시된 결과 폴더의 report.json, source.wav, baseline.wav, openai.wav를 다운로드해 대화에 첨부해 주세요.'
+printf '%s\n' '키는 파일에 저장하지 않았습니다. 이 입력 단계만으로 Codex에 키가 연결되는 것은 아닙니다.'

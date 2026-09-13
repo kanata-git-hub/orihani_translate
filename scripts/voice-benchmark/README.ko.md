@@ -13,6 +13,28 @@
 
 ## 실행
 
+### Google Cloud Shell에서 숨김 입력으로 실행
+
+이 도구는 사용자의 Cloud Shell에서 실행됩니다. Cloud Shell에 입력한 키나 생성된 결과가 Codex 작업 환경에 자동으로 전달되지는 않습니다. 키 대신 결과 파일만 대화에 첨부하세요. 운영 Cloud Run의 환경 변수나 Secret Manager를 바꿀 필요는 없습니다.
+
+1. [비교용 Cloud Shell 열기](https://shell.cloud.google.com/?cloudshell_git_repo=https://github.com/kanata-git-hub/orihani_translate&cloudshell_git_branch=chore/voice-translation-benchmark&cloudshell_workspace=.&show=terminal)를 누릅니다. 이 링크는 별도 임시 환경을 열 수 있으므로 결과는 세션 종료 전에 다운로드하세요.
+2. 30초 이내의 본인 녹음을 업로드합니다. Cloud Shell의 **더보기(⋮) → 업로드**에서 파일을 선택하고 업로드된 전체 경로를 확인합니다. 녹음을 `voice.m4a`라는 이름으로 홈 폴더에 올리면 기본 경로를 그대로 쓸 수 있습니다.
+3. 저장소 폴더의 터미널에서 아래 명령을 실행하고 녹음 경로, 번역 방향, 키를 차례로 입력합니다. 키는 마지막 숨김 입력에만 붙여넣고 Enter를 누릅니다.
+
+```sh
+bash scripts/voice-benchmark/cloud-shell.sh
+```
+
+필요한 npm 의존성은 키 입력 전에 설치합니다. 기존 WAV가 지원 형식이면 그대로 사용하고, 그 외 형식은 ffmpeg로 변환합니다. ffmpeg가 없는 경우 설치 명령을 안내하고 API 호출 전에 종료합니다. 30초를 넘는 녹음은 자동으로 잘라 비교하지 않고 거부합니다. Node 20 이상이 필요하며 이 저장소에서 검증한 실행 환경은 Node 24입니다.
+
+키는 실행 중인 자식 프로세스에만 전달하며 입력을 화면에 표시하거나 키 파일을 만들지 않습니다. 실행은 각 제공자에 1회 요청하며 실제 API 사용료가 발생합니다. **키와 비용이 연결된 실측은 아직 실행하지 않았습니다.**
+
+종료 시 표시되는 결과 폴더에서 `report.json`, `source.wav`, `baseline.wav`, `openai.wav`를 Cloud Shell의 **더보기(⋮) → 다운로드**로 받아 대화에 첨부하세요. 일부 제공자가 실패하면 존재하는 결과와 오류 메시지만 보내세요. 비교 파일에는 녹음과 번역문이 들어 있으므로 공개 GitHub에 올리지 마세요. 첫 1회 결과는 연결 확인이며 품질·속도의 최종 판정은 여러 문장과 반복 측정이 필요합니다.
+
+Google 공식 안내: [파일 업로드·다운로드](https://docs.cloud.google.com/shell/docs/uploading-and-downloading-files), [저장소를 Cloud Shell에서 열기](https://docs.cloud.google.com/shell/docs/open-in-cloud-shell).
+
+### 준비된 서버 환경에서 직접 실행
+
 Node 24와 저장소의 기존 `npm ci` 의존성만 사용합니다. OpenAI SDK 추가 설치는 필요하지 않습니다.
 서버 또는 실행 환경의 비밀 설정에서 `OPENAI_API_KEY`를 연결해야 합니다. 키를 소스·명령행 인수·채팅·공개 GitHub에 넣지 마세요. 발급만 받은 키는 이 작업에 자동 연결되지 않습니다.
 
