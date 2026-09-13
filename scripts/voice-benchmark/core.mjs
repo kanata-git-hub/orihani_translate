@@ -54,23 +54,30 @@ export function toWav(pcm, {sampleRate = SAMPLE_RATE, channels = 1} = {}) {
   return Buffer.concat([header, pcm]);
 }
 
-export function summarize(run) {
+export function summarize(run, {initialBufferMs = 150, refillThresholdMs = 50} = {}) {
+  if (!Number.isFinite(initialBufferMs) || !Number.isFinite(refillThresholdMs) || refillThresholdMs < 0 || initialBufferMs < refillThresholdMs) {
+    throw new Error('Invalid playback buffer settings.');
+  }
   const {packets, stopMs, doneMs} = run;
   let next = 0, firstStart = null, firstSignal = null, totalAudioMs = 0;
   let hindsightStart = stopMs;
   let firstSignalPacket = null, zeroSamples = 0, sampleCount = 0;
-  const gaps = [];
+  let firstSignalOffsetMs = null, lastSignalOffsetMs = null, lastNonzeroOffsetMs = null;
+  const gaps = [], gapDetails = [];
   for (const packet of packets) {
     const {sampleRate, channels} = packet.audioFormat ?? {sampleRate: SAMPLE_RATE, channels: 1};
     const bytesPerSecond = sampleRate * channels * 2;
     if (packet.pcm.length % (channels * 2)) throw new Error('Incomplete output PCM16 sample frame.');
     const received = Math.max(stopMs, packet.atMs);
     const duration = packet.pcm.length / bytesPerSecond * 1000;
-    // Reproduce the app's 150 ms initial queue and 50 ms refill threshold.
+    // Defaults reproduce the app's 150 ms initial queue and 50 ms refill threshold.
     // While the speaker is recording, received audio is held, not discarded.
-    if (next === 0 || next < received + 50) {
-      const start = received + 150;
-      if (firstStart !== null && start > next) gaps.push(start - next);
+    if (next === 0 || next < received + refillThresholdMs) {
+      const start = received + initialBufferMs;
+      if (firstStart !== null && start > next) {
+        gaps.push(start - next);
+        gapDetails.push({audioOffsetMs: totalAudioMs, afterStopMs: received - stopMs, durationMs: start - next});
+      }
       next = start;
     }
     firstStart ??= next;
@@ -78,9 +85,15 @@ export function summarize(run) {
       const value = packet.pcm.readInt16LE(i);
       sampleCount++;
       if (value === 0) zeroSamples++;
-      if (firstSignal === null && Math.abs(value) > 256) {
-        firstSignal = next + Math.floor(i / (channels * 2)) / sampleRate * 1000;
-        firstSignalPacket = Math.max(0, packet.atMs - stopMs);
+      const sampleOffsetMs = Math.floor(i / (channels * 2)) / sampleRate * 1000;
+      if (value !== 0) lastNonzeroOffsetMs = totalAudioMs + sampleOffsetMs;
+      if (Math.abs(value) > 256) {
+        firstSignalOffsetMs ??= totalAudioMs + sampleOffsetMs;
+        lastSignalOffsetMs = totalAudioMs + sampleOffsetMs;
+        if (firstSignal === null) {
+          firstSignal = next + sampleOffsetMs;
+          firstSignalPacket = Math.max(0, packet.atMs - stopMs);
+        }
       }
     }
     hindsightStart = Math.max(hindsightStart, packet.atMs - totalAudioMs);
@@ -93,6 +106,11 @@ export function summarize(run) {
   if (zeroSampleFraction !== null && zeroSampleFraction > 0.9) reviewWarnings.push('MOSTLY_DIGITAL_SILENCE');
   if (!run.transcript?.trim()) reviewWarnings.push('NO_OUTPUT_TRANSCRIPT');
   if (run.transport?.inputTranscriptionModelRequested && !run.inputTranscript?.trim()) reviewWarnings.push('NO_INPUT_TRANSCRIPT_RECEIVED');
+  // Offline classification only. The player cannot know the last signal in advance.
+  // A queue reset during trailing silence is not evidence of interrupted speech.
+  const classifiedGaps = gapDetails.map(gap => ({...gap,
+    relationToSignalSpan: firstSignalOffsetMs === null ? 'no_detected_signal' : gap.audioOffsetMs <= firstSignalOffsetMs ? 'before_first_signal' : gap.audioOffsetMs > lastSignalOffsetMs ? 'after_last_signal' : 'within_signal_span',
+    afterLastNonzero: lastNonzeroOffsetMs === null ? null : gap.audioOffsetMs > lastNonzeroOffsetMs}));
   return {
     status: packets.length ? 'audio_received' : 'no_audio',
     qualityStatus: 'not_assessed', reviewWarnings, zeroSampleFraction,
@@ -106,6 +124,10 @@ export function summarize(run) {
     audioDurationMs: totalAudioMs,
     simulatedQueueGapCount: gaps.length,
     simulatedQueueGapMs: gaps,
+    simulatedQueueGapDetails: classifiedGaps,
+    signalSpanQueueGapCount: classifiedGaps.filter(gap => gap.relationToSignalSpan === 'within_signal_span').length,
+    afterSignalQueueGapCount: classifiedGaps.filter(gap => gap.relationToSignalSpan === 'after_last_signal').length,
+    signalRangeMs: {first: firstSignalOffsetMs, last: lastSignalOffsetMs, lastNonzero: lastNonzeroOffsetMs},
     // An offline lower bound, not a buffer size the live client can know in advance.
     hindsightMinimumStartDelayMs: packets.length ? hindsightStart - stopMs : null,
     transcript: run.transcript,

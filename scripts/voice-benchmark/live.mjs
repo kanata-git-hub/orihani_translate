@@ -190,7 +190,9 @@ export function summarizeLive(run) {
   return {...rawMetrics, stopToSessionClosedMs: stopToCompleteMs, turnCompletionConfirmed: false,
     transcriptEvents: run.transcriptEvents,
     playbackEstimate: {...playable.playbackGate, stopToFirstSignalEstimateMs: queued.stopToFirstSignalEstimateMs,
-      simulatedQueueGapCount: queued.simulatedQueueGapCount, simulatedQueueGapMs: queued.simulatedQueueGapMs},
+      simulatedQueueGapCount: queued.simulatedQueueGapCount, simulatedQueueGapMs: queued.simulatedQueueGapMs,
+      signalRangeMs: queued.signalRangeMs, signalSpanQueueGapCount: queued.signalSpanQueueGapCount,
+      afterSignalQueueGapCount: queued.afterSignalQueueGapCount, simulatedQueueGapDetails: queued.simulatedQueueGapDetails},
     reviewWarnings: [...raw.reviewWarnings, 'FIXED_CAPTURE_WINDOW_NO_TURN_DONE', ...(!run.inputTranscript.trim() ? ['NO_INPUT_TRANSCRIPT_RECEIVED'] : [])]};
 }
 

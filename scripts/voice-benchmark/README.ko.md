@@ -87,6 +87,16 @@ git pull --ff-only origin chore/voice-translation-benchmark && bash scripts/voic
 - `stopToSessionClosedMs`: 정지 후 수신 창과 최종 종료까지의 시간입니다. **번역 완료 시간으로 해석하면 안 됩니다.** Live에는 발화 종료 이벤트가 없어 `turnCompletionConfirmed`는 항상 false이며, 마지막 문장이 완결됐는지는 음성과 번역문으로 확인합니다.
 - `transport.usageSeconds`: 마지막 누적 사용량입니다. 이전 사용량 이벤트와 합산하지 않으며, 최종 종료 이벤트에서 확인되었는지는 `finalUsageConfirmed`로 구분합니다. 실패해도 받은 문자·음성·사용량 근거는 가능한 범위에서 보존합니다.
 
+추가 재생 공백은 위치도 함께 확인합니다. `simulatedQueueGapCount`는 시험 전체의 공백을 그대로 집계합니다. `signalSpanQueueGapCount`는 처음과 마지막 진폭 기준 통과 사이, `afterSignalQueueGapCount`는 마지막 기준 통과 뒤의 공백입니다. `simulatedQueueGapDetails`에 PCM 위치와 재생 공백 길이를 남깁니다. `afterLastNonzero: true`인 공백은 마지막 0이 아닌 샘플까지 끝난 뒤에 발생한 것입니다. 뒤쪽 무음에서만 생긴 공백을 번역 중 끊김으로 해석하지 마세요. 기준 이하의 작은 음성·자연스러운 쉼·모델의 말 끊김 여부는 이 계산만으로 판정할 수 없습니다.
+
+이미 저장한 `report.json`과 **초기 무음만 제외한 `live.wav`**로 재생 버퍼 150·300·500ms를 비교할 수 있습니다. 이 분석은 키나 API 연결 없이 동작하며 입력 파일과 운영 앱을 수정하지 않습니다.
+
+```sh
+node scripts/voice-benchmark/analyze-playback.mjs --report /전체/경로/report.json --audio /전체/경로/live.wav
+```
+
+기록의 수신 시각과 WAV 길이·형식이 맞는지 검사하고 초기 무음 제외 시점을 재현합니다. 파일 내용이 해당 보고서의 원본이라는 암호학적 보증은 아닙니다. 한 번의 기록에서 계산한 버퍼 결과를 앞으로의 모든 연결에 대한 보장으로 사용하지 마세요. 이 분류는 수신이 끝난 뒤 수행하며, 마지막 신호 위치를 미리 알아서 재생을 멈추는 기능은 아닙니다.
+
 기존 Gemini 결과와 원음 해시가 일치하는지 확인해야 합니다. 이 한 번의 합성 음성 검사로 품질 동등성, 휴대폰에서의 속도 개선, 끊김 없음을 보장하지 않습니다. 초기 품질이 괜찮으면 한국어·일본어의 여러 실제 발화와 반복 측정으로 다음 판단을 진행합니다. 운영 앱의 모델과 배포는 변경하지 않습니다.
 
 직접 실행할 때는 `node scripts/voice-benchmark/live.mjs --audio input.wav --source ko --target ja`로 과금 없는 사전 검사를 할 수 있습니다. 키를 실행 환경에 연결한 뒤 `--run`을 추가하면 실제 요청입니다. 반대 방향은 `--source ja --target ko`입니다.
@@ -164,4 +174,5 @@ node scripts/voice-benchmark/run.mjs --synthetic --source ko --target ja --run
 node --test tests/voiceBenchmark.test.mjs
 node --test tests/voiceConnectivity.test.mjs
 node --test tests/voiceLive.test.mjs
+node --test tests/voicePlayback.test.mjs
 ```
