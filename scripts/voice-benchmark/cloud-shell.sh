@@ -6,6 +6,10 @@ if [[ "${BASH_SOURCE[0]}" != "$0" ]]; then
   return 1
 fi
 set -euo pipefail
+if (( $# > 1 )) || { (( $# == 1 )) && [[ "$1" != '--synthetic' ]]; }; then
+  printf '%s\n' '사용법: bash scripts/voice-benchmark/cloud-shell.sh [--synthetic]' >&2
+  exit 1
+fi
 umask 077
 unset OPENAI_API_KEY
 benchmark_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
@@ -28,9 +32,17 @@ if ! node --input-type=module -e "import('ws')" >/dev/null 2>&1; then
   npm ci --no-audit --no-fund
 fi
 
-printf '%s\n' '녹음이 없으면 Enter를 누르세요. 시험용 합성 음성을 만들어 비교합니다.'
-read -r -p '녹음 파일 경로 (Enter: 시험용 음성 자동 생성): ' benchmark_input <&3
-read -r -p '번역 방향 (1: 한국어→일본어, 2: 일본어→한국어, Enter: 1): ' benchmark_direction <&3
+if [[ "${1:-}" == '--synthetic' ]]; then
+  benchmark_input=''
+  benchmark_direction=1
+  printf '%s\n' '시험용 한국어 음성을 생성해 일본어 번역을 비교합니다. 녹음 파일은 필요하지 않습니다.'
+else
+  printf '%s\n' '녹음이 없으면 Enter를 누르세요. 시험용 합성 음성을 만들어 비교합니다.'
+  read -r -p '녹음 파일 경로 (Enter: 시험용 음성 자동 생성): ' benchmark_input <&3
+  # Treat an accidental blank space or CR from pasted input as an empty answer.
+  if [[ "$benchmark_input" =~ ^[[:space:]]*$ ]]; then benchmark_input=''; fi
+  read -r -p '번역 방향 (1: 한국어→일본어, 2: 일본어→한국어, Enter: 1): ' benchmark_direction <&3
+fi
 case "$benchmark_direction" in
   ''|1) benchmark_source=ko; benchmark_target=ja ;;
   2) benchmark_source=ja; benchmark_target=ko ;;

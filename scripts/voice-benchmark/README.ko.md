@@ -17,6 +17,14 @@
 
 이 도구는 사용자의 Cloud Shell에서 실행됩니다. Cloud Shell에 입력한 키나 생성된 결과가 Codex 작업 환경에 자동으로 전달되지는 않습니다. 키 대신 결과 파일만 대화에 첨부하세요. 운영 Cloud Run의 환경 변수나 Secret Manager를 바꿀 필요는 없습니다.
 
+**녹음 없이 가장 간단하게 시작하기:** 비교용 저장소 폴더의 터미널에서 아래 명령을 실행하세요. 최신 비교 도구를 받은 뒤 녹음 경로와 번역 방향 질문을 건너뛰고, 한국어→일본어 시험의 키 입력으로 진행합니다. 키를 명령문에 적지 마세요.
+
+```sh
+git pull --ff-only origin chore/voice-translation-benchmark && bash scripts/voice-benchmark/cloud-shell.sh --synthetic
+```
+
+아래 절차는 본인 녹음이나 일본어→한국어 방향을 선택할 때 사용합니다.
+
 1. [비교용 Cloud Shell 열기](https://shell.cloud.google.com/?cloudshell_git_repo=https://github.com/kanata-git-hub/orihani_translate&cloudshell_git_branch=chore/voice-translation-benchmark&cloudshell_workspace=.&show=terminal)를 누릅니다. 이 링크는 별도 임시 환경을 열 수 있으므로 결과는 세션 종료 전에 다운로드하세요.
 2. **녹음이 없어도 진행할 수 있습니다.** 아래 명령을 실행하고 녹음 경로 질문에서 Enter를 누르면 시험용 AI 합성 음성을 만듭니다. 본인 녹음을 사용하려면 30초 이내의 파일을 Cloud Shell의 **더보기(⋮) → 업로드**로 올리고 그 경로를 입력합니다.
 3. 번역 방향은 Enter가 한국어→일본어, 2가 일본어→한국어입니다. 키는 마지막 숨김 입력에만 붙여넣고 Enter를 누릅니다.
