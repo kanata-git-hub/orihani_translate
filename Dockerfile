@@ -14,6 +14,7 @@ RUN npm ci --omit=dev
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/server.ts ./server.ts
 COPY --from=build /app/chiikawa.ts ./chiikawa.ts
+COPY --from=build /app/voiceComparison.ts ./voiceComparison.ts
 
 ENV NODE_ENV=production
 EXPOSE 8080

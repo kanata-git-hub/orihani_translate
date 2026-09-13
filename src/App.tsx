@@ -4,6 +4,7 @@ import { AuthProvider } from './contexts/AuthContext';
 import { ProtectedRoute, AdminRoute } from './components/ProtectedRoute';
 
 import HomePage from './pages/HomePage';
+import VoiceComparison from './pages/VoiceComparison';
 import SharePage from './pages/SharePage';
 import MainApp from './pages/MainApp';
 import AdminDashboard from './pages/AdminDashboard'; // To be created
@@ -23,6 +24,7 @@ export default function App() {
           </Route>
           
           <Route element={<AdminRoute />}>
+            <Route path="/app/voice-compare" element={<VoiceComparison />} />
             <Route path="/admin" element={<AdminDashboard />} />
           </Route>
 
