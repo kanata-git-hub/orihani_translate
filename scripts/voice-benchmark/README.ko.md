@@ -25,6 +25,14 @@ git pull --ff-only origin chore/voice-translation-benchmark && bash scripts/voic
 
 아래 절차는 본인 녹음이나 일본어→한국어 방향을 선택할 때 사용합니다.
 
+`Synthetic speech connection failed or timed out` 또는 연결 실패가 나오면, 키를 다시 넣고 반복 실행하기 전에 아래 검사부터 실행하세요.
+
+```sh
+git pull --ff-only origin chore/voice-translation-benchmark && node scripts/voice-benchmark/diagnose.mjs
+```
+
+이 검사는 API 키나 녹음을 보내지 않고, Node와 curl이 OpenAI의 모델 목록 주소에서 HTTP 응답을 받을 수 있는지만 확인합니다. 번역·음성 생성 모델을 호출하지 않습니다. HTTP 401은 키를 보내지 않은 검사에서 예상되는 응답이며 키 오류 판정이 아닙니다. 프록시 설정은 존재 여부만 출력하고, 키·프록시 주소·원본 오류 메시지는 출력하지 않습니다. 출력된 검사 결과를 대화에 붙여넣으면 됩니다. 검사 통과만으로 유료 음성 요청의 성공이 보장되지는 않습니다. 앞선 유료 요청의 과금 여부도 이 검사로 확인할 수 없습니다.
+
 1. [비교용 Cloud Shell 열기](https://shell.cloud.google.com/?cloudshell_git_repo=https://github.com/kanata-git-hub/orihani_translate&cloudshell_git_branch=chore/voice-translation-benchmark&cloudshell_workspace=.&show=terminal)를 누릅니다. 이 링크는 별도 임시 환경을 열 수 있으므로 결과는 세션 종료 전에 다운로드하세요.
 2. **녹음이 없어도 진행할 수 있습니다.** 아래 명령을 실행하고 녹음 경로 질문에서 Enter를 누르면 시험용 AI 합성 음성을 만듭니다. 본인 녹음을 사용하려면 30초 이내의 파일을 Cloud Shell의 **더보기(⋮) → 업로드**로 올리고 그 경로를 입력합니다.
 3. 번역 방향은 Enter가 한국어→일본어, 2가 일본어→한국어입니다. 키는 마지막 숨김 입력에만 붙여넣고 Enter를 누릅니다.
@@ -94,4 +102,5 @@ node scripts/voice-benchmark/run.mjs --synthetic --source ko --target ja --run
 
 ```sh
 node --test tests/voiceBenchmark.test.mjs
+node --test tests/voiceConnectivity.test.mjs
 ```
