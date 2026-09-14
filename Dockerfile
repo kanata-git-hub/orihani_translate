@@ -15,6 +15,7 @@ COPY --from=build /app/dist ./dist
 COPY --from=build /app/server.ts ./server.ts
 COPY --from=build /app/chiikawa.ts ./chiikawa.ts
 COPY --from=build /app/voiceComparison.ts ./voiceComparison.ts
+COPY --from=build /app/realtimeComparison.ts ./realtimeComparison.ts
 COPY --from=build /app/geminiVoice.ts ./geminiVoice.ts
 
 ENV NODE_ENV=production
