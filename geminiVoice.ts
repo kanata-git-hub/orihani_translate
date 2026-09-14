@@ -1,7 +1,10 @@
 import { createHash } from 'node:crypto';
 
 export type VoiceOutputOrder = 'transcription_first' | 'translation_first';
+export type VoiceThinkingLevel = 'LOW';
 export const GEMINI_VOICE_REVISION = 'output-order-2026-09-14';
+export const GEMINI_THINKING_REVISION = 'thinking-low-2026-09-14';
+type ModelUsage = Partial<Record<'promptTokenCount' | 'candidatesTokenCount' | 'thoughtsTokenCount' | 'cachedContentTokenCount' | 'totalTokenCount', number>>;
 type Message = Record<string, any>;
 type Dependencies = {
   generate: (request: any) => Promise<AsyncIterable<any>>;
@@ -12,6 +15,8 @@ export type VoiceTiming = {
   clock: string; marks: Record<string, number>; observedFieldOrder: string[];
   tts: { queuedMs: number; requestedMs?: number; firstAudioMs?: number; completedMs?: number; failed?: boolean }[];
   failed?: boolean;
+  requestedThinkingLevel?: VoiceThinkingLevel | 'DEFAULT';
+  modelVersion?: string; finishReason?: string; usage?: ModelUsage;
 };
 
 export function buildGeminiVoicePrompt(msg: Message, outputOrder: VoiceOutputOrder = 'transcription_first') {
@@ -93,6 +98,7 @@ Pronunciation Guide Rules:
 
 export async function processGeminiAudio(msg: Message, deps: Dependencies, options: {
   outputOrder?: VoiceOutputOrder; signal?: AbortSignal; measure?: boolean;
+  thinkingLevel?: VoiceThinkingLevel;
   originMs?: number; now?: () => number;
 } = {}): Promise<VoiceTiming> {
   const now = options.now ?? (() => performance.now());
@@ -103,6 +109,7 @@ export async function processGeminiAudio(msg: Message, deps: Dependencies, optio
     promptSha256: createHash('sha256').update(systemPrompt).digest('hex'),
     clock: 'Milliseconds since server received stop (comparison); same clock for both variants. Not browser/speaker latency.',
     marks: {}, observedFieldOrder: [], tts: [],
+    ...(options.measure ? { requestedThinkingLevel: options.thinkingLevel ?? 'DEFAULT' } : {}),
   };
   const mark = (name: string) => { timing.marks[name] ??= now() - origin; };
   const send = (message: Message) => { if (!options.signal?.aborted) deps.send(message); };
@@ -120,7 +127,8 @@ export async function processGeminiAudio(msg: Message, deps: Dependencies, optio
       model: "gemini-3.6-flash",
       config: {
         systemInstruction: systemPrompt,
-        responseMimeType: "application/json"
+        responseMimeType: "application/json",
+        ...(options.thinkingLevel ? { thinkingConfig: { thinkingLevel: options.thinkingLevel } } : {}),
       },
       contents: [
         {
@@ -183,6 +191,18 @@ export async function processGeminiAudio(msg: Message, deps: Dependencies, optio
     for await (const chunk of responseStream) {
       if (!active()) break;
       mark('firstModelChunk');
+      if (options.measure) {
+        // Whitelist numeric usage only; never export thoughts, signatures, headers or raw responses.
+        if (typeof chunk.modelVersion === 'string') timing.modelVersion = chunk.modelVersion;
+        const reason = chunk.candidates?.[0]?.finishReason;
+        if (typeof reason === 'string') timing.finishReason = reason;
+        for (const key of ['promptTokenCount', 'candidatesTokenCount', 'thoughtsTokenCount', 'cachedContentTokenCount', 'totalTokenCount'] as const) {
+          const value = chunk.usageMetadata?.[key];
+          // Stream usage values are snapshots, not increments. Missing is not zero.
+          if (Number.isSafeInteger(value) && value >= 0) (timing.usage ??= {})[key] = value;
+        }
+        if (chunk.text) mark('firstModelText');
+      }
       bufferStr += chunk.text ?? "";
 
       if (bufferStr.includes('"NO_SPEECH_DETECTED"')) {

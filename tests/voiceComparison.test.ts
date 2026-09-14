@@ -7,7 +7,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { registerVoiceComparison, verifyComparisonOwner, liveComparisonSession, LIVE_PROMPT_REVISION, MAX_INPUT_BYTES } from '../voiceComparison.ts';
 import { ComparisonPlayer, concatPcm, leadingSkip, wavBytes, signalRange } from '../src/utils/voiceComparison.ts';
 import { PcmRecorder } from '../public/voice-compare-recorder.mjs';
-import { buildGeminiVoicePrompt, GEMINI_VOICE_REVISION } from '../geminiVoice.ts';
+import { buildGeminiVoicePrompt, GEMINI_VOICE_REVISION, GEMINI_THINKING_REVISION, processGeminiAudio } from '../geminiVoice.ts';
 
 class ProviderSocket extends EventEmitter {
   readyState = WebSocket.CONNECTING as number;
@@ -166,10 +166,57 @@ test('Gemini order comparison sends identical full audio only after stop, withou
   } finally { await f.close(); }
 });
 
+test('thinking trial changes only LOW, holds complete identical input until stop, and exports matching request evidence', async () => {
+  const calls: any[] = [], requests: any[] = [];
+  const f = await fixture({ key: () => { throw Error('OpenAI must not be used'); }, runGemini: async (msg, send, options) => {
+    calls.push({ msg, options });
+    return processGeminiAudio(msg, { send, generate: async request => {
+      requests.push(request);
+      return (async function* () {
+        if (request.model.includes('tts')) yield { candidates: [{ content: { parts: [{ inlineData: { data: '6APoAw==' } }] } }] };
+        else yield { text: '{"status":"SUCCESS","transcription":"계산해 주세요","translation":"お会計をお願いします。","pronunciation":""}', usageMetadata: { thoughtsTokenCount: 10 } };
+      })();
+    } }, options);
+  } });
+  try {
+    f.ws.send(JSON.stringify({ type: 'auth', source: 'ko', mode: 'gemini_thinking', thinkingLevel: 'HIGH', token: 'fake' }));
+    const ready = await f.waitFor(e => e.type === 'ready');
+    assert.equal(ready.mode, 'gemini_thinking'); assert.equal(ready.tailSeconds, 0);
+    assert.deepEqual(ready.promptEvidence.gemini, ready.promptEvidence.optimized);
+    assert.equal(ready.requestEvidence.optimized.revision, GEMINI_THINKING_REVISION);
+    assert.equal(ready.requestEvidence.optimized.thinkingLevel, 'LOW');
+    assert.equal(ready.requestEvidence.gemini.thinkingLevel, 'DEFAULT');
+    const pcm = Buffer.from([0, 0, 255, 127, 0, 128, 1, 0]);
+    f.ws.send(JSON.stringify({ type: 'audio', audio: pcm.toString('base64') }));
+    await new Promise(resolve => setTimeout(resolve, 15)); assert.equal(calls.length, 0);
+    f.ws.send(JSON.stringify({ type: 'stop', mode: 'live', source: 'ja', thinkingLevel: 'HIGH' }));
+    const evidence = await f.waitFor(e => e.type === 'input');
+    await f.waitFor(e => e.type === 'finished');
+    assert.equal(calls.length, 2); assert.equal(f.upstream.length, 0);
+    assert.equal(calls[0].msg.audio, calls[1].msg.audio);
+    assert.equal(calls[0].options.originMs, calls[1].options.originMs);
+    for (const call of calls) {
+      assert.equal(call.options.outputOrder, 'transcription_first'); assert.equal(call.msg.targetLanguageCode, 'ja');
+      assert.deepEqual(Buffer.from(call.msg.audio, 'base64').subarray(44), pcm);
+      const provider = call.options.thinkingLevel === 'LOW' ? 'optimized' : 'gemini';
+      assert.equal(evidence.variants[provider].pcmSha256, createHash('sha256').update(pcm).digest('hex'));
+      const done = f.events.find(e => e.type === 'done' && e.provider === provider);
+      assert.equal(done.timing.requestedThinkingLevel, ready.requestEvidence[provider].thinkingLevel);
+      assert.equal(done.timing.promptSha256, ready.promptEvidence[provider].sha256);
+      assert.equal(done.timing.usage.thoughtsTokenCount, 10); assert.equal(done.turnCompletionConfirmed, true);
+    }
+    const translation = requests.filter(r => !r.model.includes('tts'));
+    const baseline = translation.find(r => !r.config.thinkingConfig), candidate = translation.find(r => r.config.thinkingConfig);
+    assert.deepEqual(candidate.config.thinkingConfig, { thinkingLevel: 'LOW' });
+    assert.equal(candidate.config.systemInstruction, baseline.config.systemInstruction);
+    assert.equal(requests.length, 4);
+  } finally { await f.close(); }
+});
+
 test('Gemini-only trials require owner authentication and reject unsupported modes before model calls', async () => {
-  for (const mode of ['gemini_order', 'arbitrary-model']) {
+  for (const mode of ['gemini_order', 'gemini_thinking', 'arbitrary-model']) {
     let calls = 0;
-    const f = await fixture({ verify: mode === 'gemini_order' ? async () => { throw Error('private'); } : undefined,
+    const f = await fixture({ verify: mode !== 'arbitrary-model' ? async () => { throw Error('private'); } : undefined,
       runGemini: async () => { calls++; throw Error('must not run'); } });
     try {
       f.ws.send(JSON.stringify({ type: 'auth', source: 'ko', mode, token: 'fake' }));
@@ -180,6 +227,7 @@ test('Gemini-only trials require owner authentication and reject unsupported mod
 });
 
 test('cancel aborts both Gemini variants; an individual model failure is reported without fallback calls', async () => {
+  for (const mode of ['gemini_order', 'gemini_thinking']) {
   for (const cancel of [true, false]) {
     const signals: AbortSignal[] = [];
     const f = await fixture({ runGemini: async (_msg, _send, options) => {
@@ -189,7 +237,7 @@ test('cancel aborts both Gemini variants; an individual model failure is reporte
       throw Error('aborted');
     } });
     try {
-      f.ws.send(JSON.stringify({ type: 'auth', source: 'ko', mode: 'gemini_order', token: 'fake' }));
+      f.ws.send(JSON.stringify({ type: 'auth', source: 'ko', mode, token: 'fake' }));
       await f.waitFor(e => e.type === 'ready');
       f.ws.send(JSON.stringify({ type: 'audio', audio: '6APoAw==' })); f.ws.send(JSON.stringify({ type: 'stop' }));
       await f.waitFor(e => e.type === 'input');
@@ -201,6 +249,7 @@ test('cancel aborts both Gemini variants; an individual model failure is reporte
       }
       assert.equal(signals.length, 2); assert.ok(signals.every(s => s.aborted));
     } finally { await f.close(); }
+  }
   }
 });
 

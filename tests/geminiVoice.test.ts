@@ -1,10 +1,61 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { GoogleGenAI } from '@google/genai';
 import { buildGeminiVoicePrompt, processGeminiAudio } from '../geminiVoice.ts';
 
 const input = { role: 'user', foreignerLang: 'ja', targetLanguageCode: 'ja', audio: 'AAA=', mimeType: 'audio/wav' };
 const audioChunk = { candidates: [{ content: { parts: [{ inlineData: { data: '6APoAw==' } }] } }] };
+
+test('installed SDK sends LOW only for the candidate translation; baseline, audio, prompt and TTS stay identical', async t => {
+  const requests: any[] = [];
+  t.mock.method(globalThis, 'fetch', async (url: string, init: RequestInit) => {
+    requests.push({ url: String(url), body: JSON.parse(init.body as string) });
+    const chunk = String(url).includes('tts') ? audioChunk : {
+      candidates: [{ content: { parts: [{ text: JSON.stringify({ status: 'SUCCESS', transcription: '물건을 계산해 주세요.', translation: 'お会計をお願いします。', pronunciation: '' }) }] }, finishReason: 'STOP' }],
+      modelVersion: 'mock-gemini-version', usageMetadata: { promptTokenCount: 45, thoughtsTokenCount: 12, candidatesTokenCount: 25, totalTokenCount: 82 },
+    };
+    return new Response(`data: ${JSON.stringify(chunk)}\n\n`, { headers: { 'Content-Type': 'text/event-stream' } });
+  });
+  const ai = new GoogleGenAI({ apiKey: 'test-only-not-a-key' });
+  for (const thinkingLevel of [undefined, 'LOW'] as const) {
+    const timing = await processGeminiAudio({ ...input, thinkingLevel: 'LOW' }, {
+      generate: request => ai.models.generateContentStream(request), send: () => {},
+    }, { thinkingLevel, measure: true });
+    assert.equal(timing.requestedThinkingLevel, thinkingLevel ?? 'DEFAULT');
+    assert.equal(timing.modelVersion, 'mock-gemini-version'); assert.equal(timing.finishReason, 'STOP');
+    assert.equal(timing.usage?.thoughtsTokenCount, 12);
+  }
+  assert.equal(requests.length, 4);
+  const [normal, normalTts, candidate, candidateTts] = requests;
+  assert.equal(normal.body.generationConfig.thinkingConfig, undefined);
+  assert.deepEqual(candidate.body.generationConfig.thinkingConfig, { thinkingLevel: 'LOW' });
+  delete candidate.body.generationConfig.thinkingConfig;
+  assert.deepEqual(candidate, normal);
+  assert.deepEqual(candidateTts, normalTts);
+  assert.equal(candidateTts.body.generationConfig.thinkingConfig, undefined);
+});
+
+test('usage is a whitelisted snapshot; missing thinking usage stays unknown and metadata-only chunks are distinct from text', async () => {
+  for (const hasThinking of [true, false]) {
+    let clock = 0;
+    const timing = await processGeminiAudio({ ...input, ttsEnabled: false }, {
+      generate: async () => (async function* () {
+        clock = 10;
+        yield { usageMetadata: { promptTokenCount: 50, thoughtsTokenCount: -1, privateData: 'never export' }, privateData: 'never export' };
+        clock = 30;
+        yield { text: '{"status":"SUCCESS","transcription":"안녕","translation":"こんにちは","pronunciation":""}',
+          usageMetadata: { promptTokenCount: 50, candidatesTokenCount: 20, ...(hasThinking ? { thoughtsTokenCount: 8 } : {}) } };
+        clock = 40;
+        yield { usageMetadata: { promptTokenCount: 50, totalTokenCount: 78, ...(hasThinking ? { thoughtsTokenCount: 8 } : {}) } };
+      })(), send: () => {},
+    }, { measure: true, now: () => clock, originMs: 0 });
+    assert.equal(timing.marks.firstModelChunk, 10); assert.equal(timing.marks.firstModelText, 30);
+    assert.equal(timing.usage?.promptTokenCount, 50); assert.equal(timing.usage?.candidatesTokenCount, 20);
+    assert.equal(timing.usage?.thoughtsTokenCount, hasThinking ? 8 : undefined);
+    assert.ok(!JSON.stringify(timing).includes('never export'));
+  }
+});
 
 test('normal voice keeps the pre-change prompt in both directions; only the candidate asks for translation first', () => {
   // Digests taken from the deployed bd7210c prompt before extraction.
