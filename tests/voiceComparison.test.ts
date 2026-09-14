@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { EventEmitter, once } from 'node:events';
 import { createHash } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
-import { registerVoiceComparison, verifyComparisonOwner, liveComparisonSession, MAX_INPUT_BYTES } from '../voiceComparison.ts';
+import { registerVoiceComparison, verifyComparisonOwner, liveComparisonSession, LIVE_PROMPT_REVISION, MAX_INPUT_BYTES } from '../voiceComparison.ts';
 import { ComparisonPlayer, concatPcm, leadingSkip, wavBytes, signalRange } from '../src/utils/voiceComparison.ts';
 import { PcmRecorder } from '../public/voice-compare-recorder.mjs';
 
@@ -78,6 +78,22 @@ test('Firebase validates the token server-side; verified owner only, no account 
     await assert.rejects(verifyComparisonOwner(token, request(user)), /OWNER_ONLY/);
   }
   await assert.rejects(verifyComparisonOwner(token, request(owner, false)), /AUTH_REQUIRED/);
+});
+
+test('comparison evidence identifies the exact prompt sent upstream in each direction', async () => {
+  const hashes: string[] = [];
+  for (const source of ['ko', 'ja']) {
+    const f = await fixture();
+    try {
+      f.ws.send(JSON.stringify({ type: 'auth', source, token: 'fake' }));
+      const ready = await f.waitFor(e => e.type === 'ready');
+      const request = f.upstream.find(s => s.kind === 'live')!.sent[0];
+      const digest = createHash('sha256').update(request.session.instructions).digest('hex');
+      assert.deepEqual(ready.promptEvidence, { live: { revision: LIVE_PROMPT_REVISION, sha256: digest } });
+      hashes.push(digest);
+    } finally { await f.close(); }
+  }
+  assert.notEqual(hashes[0], hashes[1]);
 });
 
 test('same PCM streams to Live before stop and goes to the unchanged Gemini route as one WAV after stop', async () => {

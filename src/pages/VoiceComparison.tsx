@@ -21,7 +21,7 @@ type Run = {
   context: AudioContext; socket?: WebSocket; stream?: MediaStream; worklet?: AudioWorkletNode;
   inputNode?: MediaStreamAudioSourceNode; timer?: ReturnType<typeof setTimeout>; tick?: ReturnType<typeof setInterval>;
   input: Uint8Array[]; players: Record<Provider, ComparisonPlayer>; results: Record<Provider, Result>;
-  inputEvidence?: object; filePcm?: Uint8Array; fileOffset: number; cancelled: boolean; flush?: () => void;
+  inputEvidence?: object; promptEvidence?: object; filePcm?: Uint8Array; fileOffset: number; cancelled: boolean; flush?: () => void;
 };
 
 function download(name: string, value: BlobPart, type: string) {
@@ -140,6 +140,7 @@ export function VoiceComparisonPanel({ getToken }: { getToken: () => Promise<str
           const m = JSON.parse(event.data);
           if (m.type === 'error') { fail(r, messages[m.code] ?? `시험을 중단했습니다. (${m.code})`); return; }
           if (m.type === 'ready') {
+            r.promptEvidence = m.promptEvidence;
             clearTimeout(r.timer); r.readyAt = performance.now(); r.phase = 'recording'; setPhase('recording');
             r.tick = setInterval(() => setSeconds(Math.floor((performance.now() - r.readyAt!) / 1000)), 250);
             if (r.filePcm) {
@@ -186,7 +187,7 @@ export function VoiceComparisonPanel({ getToken }: { getToken: () => Promise<str
       models: { live: 'gpt-live-1', gemini: 'gemini-3.6-flash', tts: 'gemini-3.1-flash-tts-preview' },
       source: r.source, primary: r.primary, inputMethod: r.filePcm ? 'file_realtime' : 'microphone',
       readyWaitMs: r.readyAt ? r.readyAt - r.startedAt : null, sourceDurationMs: concatPcm(r.input).length / 48,
-      inputEvidence: r.inputEvidence, results: r.results,
+      inputEvidence: r.inputEvidence, promptEvidence: r.promptEvidence, results: r.results,
       playback: { live: r.players.live.metrics(), gemini: r.players.gemini.metrics() },
       limits: 'Browser audio scheduling, not physical speaker latency. Thresholded signal is not proof of speech or quality. Zero queue gaps does not prove uninterrupted speech. Live uses a fixed 30-second post-stop capture window without turn completion confirmation. File/microphone PCM encoding differs from the main app MediaRecorder encoding. No automatic quality scoring.',
     }, null, 2), 'application/json');
