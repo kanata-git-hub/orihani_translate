@@ -1,4 +1,4 @@
-// Owner-only, bounded experiment. The production Gemini pipeline remains /live.
+// Owner-only, bounded experiment. Legacy text uses /live; production voice uses /voice.
 import type { Server } from 'node:http';
 import { createHash } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
@@ -62,6 +62,7 @@ export function pcmWav(pcm: Buffer) {
 }
 
 type Dependencies = {
+  productionVoice?: WebSocketServer;
   verify?: typeof verifyComparisonOwner;
   key?: () => string | undefined;
   connect?: (url: string, options?: object) => WebSocket;
@@ -81,12 +82,13 @@ export function registerVoiceComparison(server: Server, legacy: WebSocketServer,
     try { pathname = new URL(request.url!, 'http://localhost').pathname; } catch { socket.destroy(); return; }
     if (pathname === '/live') {
       legacy.handleUpgrade(request, socket, head, ws => legacy.emit('connection', ws, request));
-    } else if (pathname === '/voice-compare') {
+    } else if (pathname === '/voice-compare' || (pathname === '/voice' && deps.productionVoice)) {
       // Browser-only endpoint: no query-string tokens, no cross-origin use.
       try {
-        if (request.url !== '/voice-compare' || new URL(request.headers.origin!).host !== request.headers.host) throw new Error();
+        if (request.url !== pathname || new URL(request.headers.origin!).host !== request.headers.host) throw new Error();
       } catch { socket.destroy(); return; }
-      comparison.handleUpgrade(request, socket, head, ws => comparison.emit('connection', ws, request));
+      const target = pathname === '/voice' ? deps.productionVoice! : comparison;
+      target.handleUpgrade(request, socket, head, ws => target.emit('connection', ws, request));
     } else socket.destroy();
   });
   comparison.on('connection', client => {
