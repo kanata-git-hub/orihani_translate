@@ -1,4 +1,5 @@
 import { processGeminiAudio } from './geminiVoice.ts';
+import { createVoiceServer, pronunciationRequest } from './voiceEngine.ts';
 import { registerVoiceComparison } from './voiceComparison.ts';
 import { registerChiikawa } from './chiikawa.ts';
 import express from "express";
@@ -52,6 +53,11 @@ async function startServer() {
   const server = http.createServer(app);
   const wss = new WebSocketServer({ noServer: true });
   registerVoiceComparison(server, wss, {
+    productionVoice: createVoiceServer({ guide: async (turn, translation, signal) => {
+      const response = await getAi().models.generateContent(pronunciationRequest(turn, translation, signal));
+      const value = JSON.parse(response.text ?? '{}').pronunciation;
+      return typeof value === 'string' ? value : '';
+    } }),
     runGemini: (msg, send, options) => processGeminiAudio(msg, {
       generate: request => getAi().models.generateContentStream(request), send,
     }, options),

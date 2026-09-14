@@ -1,3 +1,4 @@
+import { RealtimeVoice } from '../voice/RealtimeVoice';
 import { ChiikawaGallery } from '../components/ChiikawaGallery';
 
 import React, { useState, useRef, useEffect } from 'react';
@@ -24,13 +25,15 @@ export default function App() {
   
   useEffect(() => {
     ttsEnabledRef.current = ttsEnabled;
+    if (!ttsEnabled) resetAudioQueue();
   }, [ttsEnabled]);
 
   const navigate = useNavigate();
   const location = useLocation();
-  const { isAdmin } = useAuth();
+  const { isAdmin, user } = useAuth();
   
   const handleLogout = async () => {
+    cancelVoice();
     await logout();
     navigate('/');
   };
@@ -108,19 +111,12 @@ export default function App() {
   const wsRef = useRef<WebSocket | null>(null);
   const wsConnectingRef = useRef<Promise<WebSocket> | null>(null);
   const recognitionRef = useRef<any>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const visualizerIntervalRef = useRef<any>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const voiceRef = useRef<RealtimeVoice | null>(null);
+  const voiceProcessingRef = useRef(false);
   const recordingAttemptRef = useRef(0);
 
   const [audioLevels, setAudioLevels] = useState<number[]>(new Array(15).fill(10));
 
-  const sessionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const silenceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const didRestartRef = useRef<boolean>(false);
   const outCtxRef = useRef<AudioContext | null>(null);
 
   const appContainerRef = useRef<HTMLDivElement>(null);
@@ -158,7 +154,7 @@ export default function App() {
   const activeTurnContextRef = useRef<string>('');
 
   const handleReset = () => {
-    if (activeMic) stopRecording();
+    cancelVoice();
     setForeignerText('');
     setUserText('');
     setForeignerPronunciation('');
@@ -175,6 +171,8 @@ export default function App() {
     userPronunciationCompleteRef.current = '';
     foreignerPronunciationPendingRef.current = '';
     userPronunciationPendingRef.current = '';
+    lastUserOriginalSpeechRef.current = {text: '', time: 0};
+    lastForeignerOriginalSpeechRef.current = {text: '', time: 0};
     lastSpeakerRef.current = null;
     activeTurnContextRef.current = '';
     lastProcessedIndex.current = 0;
@@ -327,9 +325,11 @@ export default function App() {
       if (wsRef.current) {
         wsRef.current.close();
       }
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
-      }
+      recordingAttemptRef.current++;
+      voiceRef.current?.cancel();
+      resetAudioQueue();
+      void outCtxRef.current?.close().catch(() => {});
+      if (recognitionRef.current) recognitionRef.current.stop();
     };
   }, []);
 
@@ -344,7 +344,8 @@ export default function App() {
   };
 
   const startRecording = async (role: 'foreigner' | 'user') => {
-    if (processingRole) return;
+    if (processingRole || voiceProcessingRef.current || activeMicRef.current) return;
+    voiceRef.current?.cancel();
     const attempt = ++recordingAttemptRef.current;
     if (lastSpeakerRef.current === 'user' && userCompleteRef.current.trim()) {
        lastUserOriginalSpeechRef.current = { text: userCompleteRef.current, time: lastStopTimeRef.current };
@@ -360,6 +361,7 @@ export default function App() {
        activeTurnContextRef.current = '';
     }
 
+    activeMicRef.current = role;
     setActiveMic(role);
     setForeignerText('');
     setUserText('');
@@ -376,7 +378,6 @@ export default function App() {
     foreignerPronunciationPendingRef.current = '';
     userPronunciationPendingRef.current = '';
     lastProcessedIndex.current = 0;
-    didRestartRef.current = false;
     unfinalizedBufferRef.current = '';
     
     resetAudioQueue();
@@ -385,187 +386,100 @@ export default function App() {
        setHoldPlayback(true, outCtxRef.current);
     }
 
-    if (sessionTimeoutRef.current) {
-      clearTimeout(sessionTimeoutRef.current);
-    }
-    sessionTimeoutRef.current = setTimeout(() => {
-      stopRecording();
-    }, 5 * 60 * 1000);
-    
-    try {
-      // Connect while the user speaks; microphone startup need not wait for the socket.
-      getEnsureWs().catch(console.error);
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
-      if (attempt !== recordingAttemptRef.current) {
-        stream.getTracks().forEach(track => track.stop());
-        return;
-      }
-      streamRef.current = stream;
-
-      const options = { mimeType: 'audio/webm' };
-      let mediaRecorder: MediaRecorder;
-      try {
-        mediaRecorder = new MediaRecorder(stream, options);
-      } catch (e) {
-        mediaRecorder = new MediaRecorder(stream);
-      }
-
-      mediaRecorderRef.current = mediaRecorder;
-      audioChunksRef.current = [];
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data);
+    const current = () => attempt === recordingAttemptRef.current;
+    voiceRef.current = new RealtimeVoice({
+      role, foreignerLang, ttsEnabled: ttsEnabledRef.current,
+      opponentText: activeTurnContextRef.current.trim().slice(0, 12000),
+      token: async () => {
+        if (!user) throw Error('AUTH_REQUIRED');
+        return user.getIdToken();
+      },
+      levels: levels => { if (current()) setAudioLevels(levels); },
+      stopped: () => {
+        if (!current()) return;
+        lastStopTimeRef.current = Date.now();
+        activeMicRef.current = null; setActiveMic(null);
+        voiceProcessingRef.current = true; setProcessingRole(role);
+        setAudioLevels(new Array(15).fill(10));
+        // Hardware capture is already stopped; playback can now be released.
+        initOutCtx();
+        if (outCtxRef.current) setHoldPlayback(false, outCtxRef.current);
+      },
+      audio: audio => {
+        if (current() && !activeMicRef.current && ttsEnabledRef.current && outCtxRef.current) {
+          playAudioChunk(outCtxRef.current, audio);
         }
-      };
-
-      mediaRecorder.onstop = async () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType || 'audio/webm' });
-        const reader = new FileReader();
-        reader.readAsDataURL(audioBlob);
-        reader.onloadend = () => {
-          const base64Data = (reader.result as string).split(',')[1];
-          sendAudioToBackend(role, base64Data, mediaRecorder.mimeType || 'audio/webm');
-        };
-      };
-
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
-      const audioContext = new AudioContextClass();
-      audioContextRef.current = audioContext;
-
-      const source = audioContext.createMediaStreamSource(stream);
-      const analyser = audioContext.createAnalyser();
-      analyser.fftSize = 64;
-      analyserRef.current = analyser;
-      source.connect(analyser);
-
-      const bufferLength = analyser.frequencyBinCount;
-      const dataArray = new Uint8Array(bufferLength);
-
-      visualizerIntervalRef.current = setInterval(() => {
-        if (!analyserRef.current) return;
-        analyserRef.current.getByteFrequencyData(dataArray);
-        
-        const newLevels = [];
-        const step = Math.floor(bufferLength / 15) || 1;
-        for (let i = 0; i < 15; i++) {
-          const val = dataArray[i * step] || 0;
-          const percentage = Math.max(8, Math.min(100, (val / 255) * 100 * 1.5));
-          newLevels.push(percentage);
+      },
+      text: (input, output) => {
+        if (!current()) return;
+        foreignerCompleteRef.current = role === 'foreigner' ? input : output;
+        userCompleteRef.current = role === 'user' ? input : output;
+        setForeignerText(foreignerCompleteRef.current); setUserText(userCompleteRef.current);
+      },
+      guide: pronunciation => {
+        if (!current()) return;
+        if (role === 'user') {
+          foreignerPronunciationCompleteRef.current = pronunciation; setForeignerPronunciation(pronunciation);
+        } else {
+          userPronunciationCompleteRef.current = pronunciation; setUserPronunciation(pronunciation);
         }
-        setAudioLevels(newLevels);
-      }, 80);
-
-      mediaRecorder.start();
-
-    } catch (err) {
-      console.error('Failed to access microphone or start recording', err);
-      if (attempt === recordingAttemptRef.current) stopRecording();
-    }
-  };
-
-  const stopRecording = () => {
-    recordingAttemptRef.current++;
-    lastStopTimeRef.current = Date.now();
-    if (sessionTimeoutRef.current) {
-      clearTimeout(sessionTimeoutRef.current);
-      sessionTimeoutRef.current = null;
-    }
-    
-    if (silenceTimerRef.current) {
-      clearTimeout(silenceTimerRef.current);
-      silenceTimerRef.current = null;
-    }
-
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      setProcessingRole(activeMicRef.current);
-      mediaRecorderRef.current.stop();
-    }
-
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
-      streamRef.current = null;
-    }
-
-    if (visualizerIntervalRef.current) {
-      clearInterval(visualizerIntervalRef.current);
-      visualizerIntervalRef.current = null;
-    }
-    
-    if (audioContextRef.current) {
-      audioContextRef.current.close().catch(console.error);
-      audioContextRef.current = null;
-    }
-    analyserRef.current = null;
-    setAudioLevels(new Array(15).fill(10));
-    
-    initOutCtx();
-    if (outCtxRef.current) {
-       // iOS Web Audio API unlock trick: play a short silent buffer under direct user gesture
-       try {
-         const buffer = outCtxRef.current.createBuffer(1, 1, 22050);
-         const source = outCtxRef.current.createBufferSource();
-         source.buffer = buffer;
-         source.connect(outCtxRef.current.destination);
-         source.start(0);
-       } catch (e) {
-         console.warn("Failed to play silent buffer for iOS unlock", e);
-       }
-       setHoldPlayback(false, outCtxRef.current);
-    }
-    
-    setActiveMic(null);
-    setLocalUnfinalizedForeigner('');
-    setLocalUnfinalizedUser('');
-    unfinalizedBufferRef.current = '';
-  };
-
-  const sendAudioToBackend = (role: 'foreigner' | 'user', base64Audio: string, mimeType: string) => {
-    setProcessingRole(role);
-    lastSpeakerRef.current = role;
-
-    if (role === 'foreigner') {
-      setForeignerText('');
-      setForeignerPronunciation('');
-    } else {
-      setUserText('');
-      setUserPronunciation('');
-    }
-
-    const currentComplete = role === 'foreigner' ? foreignerCompleteRef.current : userCompleteRef.current;
-    const opponentComplete = activeTurnContextRef.current;
-
-    getEnsureWs().then(ws => {
-      ws.send(JSON.stringify({ 
-        type: 'process_audio',
-        role: role,
-        audio: base64Audio,
-        mimeType: mimeType,
-        previousText: currentComplete.trim(),
-        opponentText: opponentComplete.trim(),
-        targetLanguageCode: role === 'foreigner' ? 'Korean' : foreignerLang,
-        foreignerLang: foreignerLang,
-        ttsEnabled: ttsEnabledRef.current
-      }));
-    }).catch(err => {
-      console.error(err);
-      setProcessingRole(null);
-      setUserText('음성 번역 연결에 실패했습니다. 다시 시도해 주세요.');
+      },
+      done: () => {
+        if (!current()) return;
+        voiceProcessingRef.current = false; setProcessingRole(null);
+      },
+      error: code => {
+        if (!current()) return;
+        activeMicRef.current = null; setActiveMic(null);
+        voiceProcessingRef.current = false; setProcessingRole(null);
+        setAudioLevels(new Array(15).fill(10)); resetAudioQueue();
+        const empty = ['NO_SPEECH_DETECTED', 'REALTIME_NO_AUDIO'].includes(code);
+        const message = empty ? '음성이 감지되지 않았습니다. 다시 말씀해 주세요.'
+          : code === 'AUTH_REQUIRED' ? '로그인을 다시 확인해 주세요.'
+          : code === 'RECORDING_TIMEOUT' ? '녹음 제한시간이 지났습니다. 다시 말씀해 주세요.'
+          : '음성 번역을 완료하지 못했습니다. 다시 시도해 주세요.';
+        // Preserve any received translation and show the error without replacing it.
+        setUserPronunciation('⚠️ ' + message);
+      },
     });
   };
 
+  const stopRecording = () => {
+    // Resume in the user's stop gesture for mobile Web Audio playback.
+    initOutCtx();
+    if (outCtxRef.current) {
+      const silent = outCtxRef.current.createBufferSource();
+      silent.buffer = outCtxRef.current.createBuffer(1, 1, 24000);
+      silent.connect(outCtxRef.current.destination); silent.start();
+    }
+    voiceRef.current?.stop();
+  };
+
+  const cancelVoice = () => {
+    recordingAttemptRef.current++;
+    voiceRef.current?.cancel(); voiceRef.current = null;
+    activeMicRef.current = null; setActiveMic(null);
+    voiceProcessingRef.current = false; setProcessingRole(null);
+    setAudioLevels(new Array(15).fill(10)); resetAudioQueue();
+    if (outCtxRef.current) setHoldPlayback(false, outCtxRef.current);
+  };
+
+  const changeForeignerLanguage = (language: string) => {
+    handleReset(); setForeignerLang(language);
+  };
+
   const toggleForeignerMic = () => {
-    if (activeMic === 'foreigner') stopRecording();
+    if (activeMicRef.current === 'foreigner') stopRecording();
     else {
-      if (activeMic === 'user') { stopRecording(); return; }
+      if (activeMicRef.current === 'user') { stopRecording(); return; }
       startRecording('foreigner');
     }
   };
 
   const toggleUserMic = () => {
-    if (activeMic === 'user') stopRecording();
+    if (activeMicRef.current === 'user') stopRecording();
     else {
-      if (activeMic === 'foreigner') { stopRecording(); return; }
+      if (activeMicRef.current === 'foreigner') { stopRecording(); return; }
       startRecording('user');
     }
   };
@@ -592,7 +506,9 @@ export default function App() {
     const textToSend = role === 'foreigner' ? textInputForeigner.trim() : textInputUser.trim();
     if (!textToSend) return;
 
-    if (activeMic) stopRecording();
+    cancelVoice();
+    initOutCtx();
+    if (outCtxRef.current) setHoldPlayback(false, outCtxRef.current);
 
     setProcessingRole(role);
     lastSpeakerRef.current = role;
@@ -621,7 +537,8 @@ export default function App() {
   };
 
   const playTTS = async (text: string) => {
-    if (!text) return;
+    if (!text || activeMicRef.current) return;
+    const playbackAttempt = recordingAttemptRef.current;
     setPlayingTTS(true);
     resetAudioQueue();
     initOutCtx();
@@ -632,7 +549,7 @@ export default function App() {
         body: JSON.stringify({ text })
       });
       const data = await res.json();
-      if (data.audio) {
+      if (data.audio && !activeMicRef.current && playbackAttempt === recordingAttemptRef.current) {
         if (!outCtxRef.current) {
           const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
           outCtxRef.current = new AudioContextClass({ sampleRate: 24000 });
@@ -657,7 +574,7 @@ export default function App() {
       <ForeignerPanel
         foreignLoc={foreignLoc}
         foreignerLang={foreignerLang}
-        setForeignerLang={setForeignerLang}
+        setForeignerLang={changeForeignerLanguage}
         ttsEnabled={ttsEnabled}
         setTtsEnabled={setTtsEnabled}
         isAdmin={isAdmin}

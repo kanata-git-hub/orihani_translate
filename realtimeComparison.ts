@@ -10,7 +10,7 @@ export function realtimeComparisonSession(source: string) {
   const from = source === 'ko' ? 'Korean' : 'Japanese', to = source === 'ko' ? 'Japanese' : 'Korean';
   return {
     type: 'realtime', model: REALTIME_MODEL, output_modalities: ['audio'],
-    reasoning: { effort: 'low' }, max_output_tokens: 4096, tools: [], tool_choice: 'none',
+    reasoning: { effort: 'low' }, max_output_tokens: 4096 as number | 'inf', tools: [], tool_choice: 'none',
     instructions: `You are a professional interpreter from ${from} into ${to}. Speak only ${to}. ` +
       'Translate the entire recorded utterance using all of its context, including predicates, negation, conditions and corrections near the end. ' +
       'Resolve ambiguous word meanings from the whole utterance before speaking. Use natural, casually polite language appropriate to the situation. ' +
@@ -53,9 +53,13 @@ export function createRealtimeComparison(options: {
   audio: (audio: string) => void; text: (input: string, output: string) => void;
   done: (error: string | undefined, evidence: Record<string, any>) => void;
   now?: () => number; transcriptionGraceMs?: number;
+  // Trusted server configuration. Defaults keep the owner comparison unchanged.
+  session?: ReturnType<typeof realtimeComparisonSession>;
+  maxInputBytes?: number; maxAudioBytes?: number;
 }) {
   const now = options.now ?? (() => performance.now());
-  const session = realtimeComparisonSession(options.source);
+  const session = options.session ?? realtimeComparisonSession(options.source);
+  const textOnly = session.output_modalities[0] === 'text';
   const promptSha256 = createHash('sha256').update(session.instructions).digest('hex');
   const inputHash = createHash('sha256');
   let disposed = false, ready = false, terminal = false, origin: number | undefined;
@@ -111,11 +115,14 @@ export function createRealtimeComparison(options: {
         const s = m.session;
         const pcm = (format: any) => format?.type === 'audio/pcm' && format.rate === 24000;
         if (ready || s?.type !== 'realtime' || s.model !== REALTIME_MODEL || s.instructions !== session.instructions ||
-          s.audio?.input?.turn_detection !== null || !pcm(s.audio?.input?.format) || !pcm(s.audio?.output?.format) ||
-          s.audio.output.voice !== 'marin' || s.reasoning?.effort !== 'low' || s.tool_choice !== 'none' ||
+          s.audio?.input?.turn_detection !== null || !pcm(s.audio?.input?.format) ||
+          (!textOnly && (!pcm(s.audio?.output?.format) || s.audio.output.voice !== 'marin')) ||
+          s.reasoning?.effort !== 'low' || s.tool_choice !== 'none' ||
+          (options.session && (s.output_modalities?.[0] !== session.output_modalities[0] ||
+            s.audio.input.transcription?.language !== options.source)) ||
           s.audio.input.transcription?.model !== REALTIME_TRANSCRIPTION_MODEL) { finish('REALTIME_SESSION_MISMATCH'); return; }
-        evidence.serverSession = { model: s.model, inputFormat: s.audio.input.format, outputFormat: s.audio.output.format,
-          turnDetection: null, voice: s.audio.output.voice, reasoningEffort: s.reasoning.effort, transcriptionModel: s.audio.input.transcription.model };
+        evidence.serverSession = { model: s.model, inputFormat: s.audio.input.format, outputFormat: s.audio.output?.format,
+          turnDetection: null, voice: s.audio.output?.voice, reasoningEffort: s.reasoning.effort, transcriptionModel: s.audio.input.transcription.model };
         ready = true; options.ready(evidence);
       } else if (m.type === 'input_audio_buffer.committed') {
         if (origin === undefined || committed || typeof m.item_id !== 'string') throw Error();
@@ -130,13 +137,19 @@ export function createRealtimeComparison(options: {
         if (m.type === 'response.output_audio.delta') {
           if (typeof m.delta !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(m.delta)) throw Error();
           const pcm = Buffer.from(m.delta, 'base64'); audioBytes += pcm.length;
-          if (!pcm.length || pcm.length % 2 || audioBytes > 6_000_000) throw Error();
+          if (textOnly || !pcm.length || pcm.length % 2 || audioBytes > (options.maxAudioBytes ?? 6_000_000)) throw Error();
           mark('firstAudio'); options.audio(m.delta);
         } else if (m.type === 'response.output_audio_transcript.delta') {
           if (typeof m.delta !== 'string') throw Error(); output += m.delta; mark('firstTranslation'); emitText();
         } else if (m.type === 'response.output_audio_transcript.done') {
           if (typeof m.transcript !== 'string') throw Error(); output = m.transcript; emitText();
         } else if (m.type === 'response.output_audio.done') mark('audioDone');
+      } else if (m.type === 'response.output_text.delta' || m.type === 'response.output_text.done') {
+        if (!textOnly || !requested || !responseId || m.response_id !== responseId || responseDone) throw Error();
+        const value = m.type.endsWith('.delta') ? m.delta : m.text;
+        if (typeof value !== 'string') throw Error();
+        output = m.type.endsWith('.delta') ? output + value : value;
+        mark('firstTranslation'); emitText();
       } else if (m.type.startsWith('conversation.item.input_audio_transcription.')) {
         if (!committed || m.item_id !== itemId) throw Error();
         if (m.type.endsWith('.delta')) { if (typeof m.delta !== 'string') throw Error(); input += m.delta; emitText(); }
@@ -151,9 +164,9 @@ export function createRealtimeComparison(options: {
         evidence.usage = numericUsage(m.response.usage);
         if (evidence.responseStatus !== 'completed') { finish(`REALTIME_${evidence.responseStatus.toUpperCase()}`); return; }
         const contents = (m.response.output ?? []).flatMap((item: any) => item.content ?? []);
-        const transcript = contents.filter((part: any) => part.type === 'audio' && typeof part.transcript === 'string').map((part: any) => part.transcript).join('');
+        const transcript = contents.map((part: any) => textOnly && part.type === 'text' ? part.text : part.type === 'audio' ? part.transcript : '').filter((value: any) => typeof value === 'string').join('');
         if (transcript) { output = transcript; emitText(); }
-        if (!audioBytes) { finish('REALTIME_NO_AUDIO'); return; }
+        if (textOnly ? !output.trim() : !audioBytes) { finish('REALTIME_NO_AUDIO'); return; }
         if (!output.trim()) evidence.reviewWarnings = ['NO_OUTPUT_TRANSCRIPT'];
         maybeFinish();
       } else if (m.type === 'error') {
@@ -165,7 +178,7 @@ export function createRealtimeComparison(options: {
   });
   return {
     append(pcm: Buffer) {
-      if (!ready || terminal || origin !== undefined || !pcm.length || pcm.length % 2 || pcm.length > 9600 || inputBytes + pcm.length > 1_440_000) throw Error('REALTIME_INVALID_INPUT');
+      if (!ready || terminal || origin !== undefined || !pcm.length || pcm.length % 2 || pcm.length > 9600 || inputBytes + pcm.length > (options.maxInputBytes ?? 1_440_000)) throw Error('REALTIME_INVALID_INPUT');
       write({ type: 'input_audio_buffer.append', audio: pcm.toString('base64') });
       inputHash.update(pcm); inputBytes += pcm.length; inputChunks++;
     },
