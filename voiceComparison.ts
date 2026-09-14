@@ -2,8 +2,8 @@
 import type { Server } from 'node:http';
 import { createHash } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
-import { buildGeminiVoicePrompt, GEMINI_VOICE_REVISION } from './geminiVoice.ts';
-import type { VoiceTiming, VoiceOutputOrder } from './geminiVoice.ts';
+import { buildGeminiVoicePrompt, GEMINI_VOICE_REVISION, GEMINI_THINKING_REVISION } from './geminiVoice.ts';
+import type { VoiceTiming, VoiceOutputOrder, VoiceThinkingLevel } from './geminiVoice.ts';
 
 export const LIVE_MODEL = 'gpt-live-1';
 export const LIVE_PROMPT_REVISION = 'travel-2026-09-14';
@@ -66,7 +66,7 @@ type Dependencies = {
   connect?: (url: string, options?: object) => WebSocket;
   tailMs?: number;
   runGemini?: (message: Record<string, any>, send: (event: Record<string, any>) => void,
-    options: { outputOrder: VoiceOutputOrder; signal: AbortSignal; measure: boolean; originMs: number }) => Promise<VoiceTiming>;
+    options: { outputOrder: VoiceOutputOrder; thinkingLevel?: VoiceThinkingLevel; signal: AbortSignal; measure: boolean; originMs: number }) => Promise<VoiceTiming>;
 };
 
 export function registerVoiceComparison(server: Server, legacy: WebSocketServer, deps: Dependencies = {}) {
@@ -90,7 +90,11 @@ export function registerVoiceComparison(server: Server, legacy: WebSocketServer,
   });
   comparison.on('connection', client => {
     let source = 'ko';
-    let mode: 'live' | 'gemini_order' = 'live';
+    let mode: 'live' | 'gemini_order' | 'gemini_thinking' = 'live';
+    const variantOptions = (provider: 'gemini' | 'optimized'): { outputOrder: VoiceOutputOrder; thinkingLevel?: VoiceThinkingLevel } => ({
+      outputOrder: mode === 'gemini_order' && provider === 'optimized' ? 'translation_first' : 'transcription_first',
+      ...(mode === 'gemini_thinking' && provider === 'optimized' ? { thinkingLevel: 'LOW' as const } : {}),
+    });
     const controllers = new Map<string, AbortController>();
     const geminiMessage = (audio = '') => ({ type: 'process_audio', audio, mimeType: 'audio/wav',
       role: source === 'ja' ? 'foreigner' : 'user', foreignerLang: 'ja',
@@ -144,11 +148,15 @@ export function registerVoiceComparison(server: Server, legacy: WebSocketServer,
         const promptEvidence = mode === 'live'
           ? { live: { revision: LIVE_PROMPT_REVISION, sha256: livePromptSha256 } }
           : Object.fromEntries((['gemini', 'optimized'] as const).map(provider => {
-            const order = provider === 'gemini' ? 'transcription_first' : 'translation_first';
+            const order = variantOptions(provider).outputOrder;
             return [provider, { revision: GEMINI_VOICE_REVISION, outputOrder: order,
               sha256: createHash('sha256').update(buildGeminiVoicePrompt(geminiMessage(), order)).digest('hex') }];
           }));
-        send({ type: 'ready', mode, maxSeconds: 30, tailSeconds: mode === 'live' ? tailMs / 1000 : 0, promptEvidence });
+        const requestEvidence = mode === 'live' ? undefined : Object.fromEntries((['gemini', 'optimized'] as const).map(provider => [provider, {
+          revision: mode === 'gemini_thinking' ? GEMINI_THINKING_REVISION : GEMINI_VOICE_REVISION,
+          model: 'gemini-3.6-flash', ...variantOptions(provider), thinkingLevel: variantOptions(provider).thinkingLevel ?? 'DEFAULT',
+        }]));
+        send({ type: 'ready', mode, maxSeconds: 30, tailSeconds: mode === 'live' ? tailMs / 1000 : 0, promptEvidence, requestEvidence });
       }
     };
     client.on('message', async data => {
@@ -161,10 +169,10 @@ export function registerVoiceComparison(server: Server, legacy: WebSocketServer,
           const owner = await verify(event.token);
           if (closed) return;
           if (owners.has(owner)) { fail('ALREADY_RUNNING'); return; }
-          if (event.mode !== undefined && event.mode !== 'live' && event.mode !== 'gemini_order') throw new Error();
+          if (event.mode !== undefined && !['live', 'gemini_order', 'gemini_thinking'].includes(event.mode)) throw new Error();
           if (event.source !== 'ko' && event.source !== 'ja') throw new Error();
           mode = event.mode ?? 'live'; source = event.source;
-          if (mode === 'gemini_order') {
+          if (mode !== 'live') {
             if (!deps.runGemini) { fail('GEMINI_TEST_NOT_CONFIGURED'); return; }
             uid = owner; owners.add(uid); state = 'starting';
             liveReady = true; geminiReady = true; ready();
@@ -239,7 +247,7 @@ export function registerVoiceComparison(server: Server, legacy: WebSocketServer,
           }
         } else if (event.type === 'stop' && state === 'recording') {
           state = 'stopped'; clearTimeout(deadline);
-          if (mode === 'gemini_order') {
+          if (mode !== 'live') {
             const originMs = performance.now(), pcm = Buffer.concat(input); input = [];
             const audio = pcmWav(pcm).toString('base64');
             const sha256 = createHash('sha256').update(pcm).digest('hex');
@@ -262,7 +270,7 @@ export function registerVoiceComparison(server: Server, legacy: WebSocketServer,
                 if (m.inputTranscription !== undefined || m.outputTranscription !== undefined) {
                   send({ type: 'text', provider, input: m.inputTranscription ?? '', output: m.outputTranscription ?? '', append: false });
                 }
-              }, { outputOrder: provider === 'gemini' ? 'transcription_first' : 'translation_first',
+              }, { ...variantOptions(provider),
                 signal: controller.signal, measure: true, originMs })
                 .then(timing => providerDone(provider, error ?? (timing.failed ? 'GEMINI_FAILED' : undefined), timing))
                 .catch(() => providerDone(provider, 'GEMINI_FAILED'));

@@ -3,7 +3,20 @@
 소유자 전용 `/app/voice-compare`에서 한국어↔일본어를 시험합니다. 기존 앱의 음성 모델, 문자·이미지 번역과 `/live` 메시지 형식은 유지합니다.
 
 
-## Gemini 속도 개선 비교 (기본 선택)
+## Gemini 응답 대기 줄이기 (기본 선택)
+
+`/app/voice-compare?mode=gemini_thinking` 또는 `Gemini 응답 대기 줄이기 · 새 시험`을 선택합니다. 개정: `thinking-low-2026-09-14`.
+
+- 첫 출력 순서 시험에서는 큰 차이가 첫 모델 응답 전에 발생했습니다. 출력 순서만으로 원인을 확정할 수 없어, 이번에는 생각 강도 한 가지만 비교합니다.
+- 기존은 `thinkingConfig`를 지정하지 않으며, 개선안은 번역 요청에만 `thinkingConfig: { thinkingLevel: 'LOW' }`를 보냅니다. [공식 생각 설정 문서](https://ai.google.dev/gemini-api/docs/thinking)에 따르면 3.6 Flash는 기본 `medium`, `low`를 지원합니다. 보고서의 `DEFAULT`는 실제 선택된 강도를 확인했다는 뜻이 아니라 설정을 생략했다는 뜻입니다.
+- 두 방식은 **동일한 전체 녹음, 동일한 원본 프롬프트와 출력 순서**를 사용합니다. 번역 모델, TTS 모델·음색·문장 재생은 같습니다. 출력 순서 개선을 함께 적용하거나 정답 예시를 추가하지 않습니다. 기본 앱에는 낮음 설정을 적용하지 않습니다.
+- 보고서 v3의 `requestEvidence`는 요청한 설정, `promptEvidence`는 같은 프롬프트 해시를 담습니다. `timing`에는 첫 응답/첫 글자, 제공된 모델 버전·종료 이유·사용량을 남깁니다. 생각 토큰은 제공사가 보고한 숫자만 저장하며, 누락은 0이 아닙니다. 스트리밍 사용량을 합산하지 않습니다. 생각 내용·서명·응답 헤더는 수집하지 않습니다.
+- 생각 토큰과 대기시간만으로 제공사의 대기열·실제 추론 시간·전송 시간을 분리하거나 품질을 판정할 수 없습니다. `LOW`도 전체 발화를 입력받지만 품질 유지와 속도 향상은 실제 폰 시험으로 확인해야 합니다.
+- 아래의 동일 입력·동시 요청·무작위 호출 순서·사용료·중단·저장 조건은 이 비교에도 적용됩니다. 자동 반복과 OpenAI 호출은 없습니다.
+
+## Gemini 출력 순서 비교 (이전 시험)
+
+`/app/voice-compare?mode=gemini_order` 또는 `Gemini 출력 순서 · 이전 시험`을 선택합니다.
 
 - 기존·개선 Gemini는 모두 스탑 시점까지의 전체 WAV를 받습니다. 번역 모델은 `gemini-3.6-flash`, TTS는 `gemini-3.1-flash-tts-preview`, 음색과 문장 분할·재생 방식도 같습니다.
 - 개선안은 JSON 출력 순서만 `status → translation → transcription → pronunciation`으로 바꿉니다. 기존 순서는 `status → transcription → translation → pronunciation`입니다. 단어 예시나 별도 정답은 추가하지 않습니다. 기본 앱은 기존 순서를 계속 사용합니다.
