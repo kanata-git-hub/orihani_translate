@@ -7,6 +7,7 @@ import { WebSocket, WebSocketServer } from 'ws';
 import { registerVoiceComparison, verifyComparisonOwner, liveComparisonSession, LIVE_PROMPT_REVISION, MAX_INPUT_BYTES } from '../voiceComparison.ts';
 import { ComparisonPlayer, concatPcm, leadingSkip, wavBytes, signalRange } from '../src/utils/voiceComparison.ts';
 import { PcmRecorder } from '../public/voice-compare-recorder.mjs';
+import { buildGeminiVoicePrompt, GEMINI_VOICE_REVISION } from '../geminiVoice.ts';
 
 class ProviderSocket extends EventEmitter {
   readyState = WebSocket.CONNECTING as number;
@@ -25,11 +26,12 @@ class ProviderSocket extends EventEmitter {
   close() { if (this.readyState === WebSocket.CLOSED) return; this.readyState = WebSocket.CLOSED; queueMicrotask(() => this.emit('close')); }
   terminate() { this.close(); }
 }
-async function fixture(options: { verify?: () => Promise<string>; key?: () => string | undefined } = {}) {
+async function fixture(options: { verify?: () => Promise<string>; key?: () => string | undefined; runGemini?: Parameters<typeof registerVoiceComparison>[2]['runGemini'] } = {}) {
   const server = createServer(), legacy = new WebSocketServer({ noServer: true }), upstream: ProviderSocket[] = [];
   legacy.on('connection', ws => ws.on('message', data => ws.send(data)));
   const comparison = registerVoiceComparison(server, legacy, {
     verify: options.verify ?? (async () => 'owner'), key: options.key ?? (() => 'fake-key'), tailMs: 250,
+    runGemini: options.runGemini,
     connect: url => { const ws = new ProviderSocket(url.includes('openai') ? 'live' : 'gemini'); upstream.push(ws); return ws as unknown as WebSocket; },
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
@@ -123,6 +125,83 @@ test('same PCM streams to Live before stop and goes to the unchanged Gemini rout
     assert.deepEqual(live.sent[0].session, liveComparisonSession('ja'));
     assert.ok(!JSON.stringify(live.sent).includes('input_audio_buffer.commit'));
   } finally { await f.close(); }
+});
+
+test('Gemini order comparison sends identical full audio only after stop, without any OpenAI key or connection', async () => {
+  const calls: any[] = [];
+  const f = await fixture({ key: () => { throw Error('OpenAI must not be used'); }, runGemini: async (msg, send, options) => {
+    calls.push({ msg, options });
+    send({ inputTranscription: '予約は維持します', outputTranscription: '예약을 유지할게요', partial: true });
+    send({ audio: '6APoAw==' });
+    send({ turnComplete: true });
+    return { revision: GEMINI_VOICE_REVISION, outputOrder: options.outputOrder,
+      promptSha256: createHash('sha256').update(buildGeminiVoicePrompt(msg, options.outputOrder)).digest('hex'),
+      clock: 'test', marks: { firstTranslation: 12, firstAudio: 25 }, observedFieldOrder: [], tts: [] };
+  } });
+  try {
+    f.ws.send(JSON.stringify({ type: 'auth', source: 'ja', mode: 'gemini_order', token: 'fake' }));
+    const ready = await f.waitFor(e => e.type === 'ready');
+    assert.equal(ready.mode, 'gemini_order'); assert.equal(ready.tailSeconds, 0);
+    const pcm = Buffer.from([0, 0, 255, 127, 0, 128, 1, 0]);
+    f.ws.send(JSON.stringify({ type: 'audio', audio: pcm.toString('base64') }));
+    await new Promise(resolve => setTimeout(resolve, 15));
+    assert.equal(calls.length, 0); assert.equal(f.upstream.length, 0);
+    f.ws.send(JSON.stringify({ type: 'stop', source: 'ko', mode: 'live' }));
+    const input = await f.waitFor(e => e.type === 'input');
+    await f.waitFor(e => e.type === 'finished');
+    assert.equal(calls.length, 2); assert.equal(f.upstream.length, 0);
+    assert.equal(calls[0].msg.audio, calls[1].msg.audio);
+    for (const call of calls) {
+      assert.deepEqual(Buffer.from(call.msg.audio, 'base64').subarray(44), pcm);
+      assert.equal(call.msg.targetLanguageCode, 'ko'); assert.equal(call.msg.role, 'foreigner');
+      assert.equal(call.options.measure, true);
+      const provider = call.options.outputOrder === 'translation_first' ? 'optimized' : 'gemini';
+      const done = f.events.find(e => e.type === 'done' && e.provider === provider);
+      assert.equal(done.timing.promptSha256, ready.promptEvidence[provider].sha256);
+      assert.equal(done.turnCompletionConfirmed, true);
+      assert.equal(input.variants[provider].pcmSha256, input.pcmSha256);
+    }
+    assert.deepEqual(calls.map(c => c.options.outputOrder).sort(), ['transcription_first', 'translation_first']);
+    assert.equal(calls[0].options.originMs, calls[1].options.originMs);
+  } finally { await f.close(); }
+});
+
+test('Gemini-only trials require owner authentication and reject unsupported modes before model calls', async () => {
+  for (const mode of ['gemini_order', 'arbitrary-model']) {
+    let calls = 0;
+    const f = await fixture({ verify: mode === 'gemini_order' ? async () => { throw Error('private'); } : undefined,
+      runGemini: async () => { calls++; throw Error('must not run'); } });
+    try {
+      f.ws.send(JSON.stringify({ type: 'auth', source: 'ko', mode, token: 'fake' }));
+      await f.waitFor(e => e.type === 'error');
+      assert.equal(calls, 0); assert.equal(f.upstream.length, 0);
+    } finally { await f.close(); }
+  }
+});
+
+test('cancel aborts both Gemini variants; an individual model failure is reported without fallback calls', async () => {
+  for (const cancel of [true, false]) {
+    const signals: AbortSignal[] = [];
+    const f = await fixture({ runGemini: async (_msg, _send, options) => {
+      signals.push(options.signal);
+      if (!cancel) throw Error('private provider error');
+      await new Promise(resolve => options.signal.addEventListener('abort', resolve, { once: true }));
+      throw Error('aborted');
+    } });
+    try {
+      f.ws.send(JSON.stringify({ type: 'auth', source: 'ko', mode: 'gemini_order', token: 'fake' }));
+      await f.waitFor(e => e.type === 'ready');
+      f.ws.send(JSON.stringify({ type: 'audio', audio: '6APoAw==' })); f.ws.send(JSON.stringify({ type: 'stop' }));
+      await f.waitFor(e => e.type === 'input');
+      if (cancel) { f.ws.close(); await new Promise(resolve => setTimeout(resolve, 20)); }
+      else {
+        await f.waitFor(e => e.type === 'finished');
+        assert.equal(f.events.filter(e => e.type === 'done' && e.error === 'GEMINI_FAILED').length, 2);
+        assert.ok(!JSON.stringify(f.events).includes('private provider error'));
+      }
+      assert.equal(signals.length, 2); assert.ok(signals.every(s => s.aborted));
+    } finally { await f.close(); }
+  }
 });
 
 test('legacy /live websocket still works; cross-origin comparison handshakes are rejected', async () => {
