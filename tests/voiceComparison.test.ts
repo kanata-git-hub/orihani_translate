@@ -20,6 +20,7 @@ class ProviderSocket extends EventEmitter {
   }
   send(text: string) {
     const m = JSON.parse(text); this.sent.push(m);
+    if (m.setup) queueMicrotask(() => this.receive({ setupComplete: {} }));
     if (m.type === 'session.update') queueMicrotask(() => this.receive({ type: 'session.updated', session: m.session }));
     if (m.type === 'session.start') queueMicrotask(() => this.receive({ type: 'session.started', session: m.session }));
     if (m.type === 'session.close') queueMicrotask(() => this.receive({ type: 'session.closed', reason: 'close_requested', usage: { seconds: 1 } }));
@@ -28,13 +29,13 @@ class ProviderSocket extends EventEmitter {
   close() { if (this.readyState === WebSocket.CLOSED) return; this.readyState = WebSocket.CLOSED; queueMicrotask(() => this.emit('close')); }
   terminate() { this.close(); }
 }
-async function fixture(options: { verify?: () => Promise<string>; key?: () => string | undefined; runGemini?: Parameters<typeof registerVoiceComparison>[2]['runGemini'] } = {}) {
+async function fixture(options: { verify?: () => Promise<string>; key?: () => string | undefined; geminiKey?: () => string | undefined; runGemini?: Parameters<typeof registerVoiceComparison>[2]['runGemini'] } = {}) {
   const server = createServer(), legacy = new WebSocketServer({ noServer: true }), upstream: ProviderSocket[] = [];
   legacy.on('connection', ws => ws.on('message', data => ws.send(data)));
   const comparison = registerVoiceComparison(server, legacy, {
     verify: options.verify ?? (async () => 'owner'), key: options.key ?? (() => 'fake-key'), tailMs: 250,
-    runGemini: options.runGemini,
-    connect: url => { const ws = new ProviderSocket(url.includes('/v1/realtime?') ? 'realtime' : url.includes('openai') ? 'live' : 'gemini'); upstream.push(ws); return ws as unknown as WebSocket; },
+    runGemini: options.runGemini, geminiKey: options.geminiKey ?? (() => 'fake-google-key'),
+    connect: url => { const ws = new ProviderSocket(url.includes('/v1/realtime?') ? 'realtime' : url.includes('openai') ? 'live' : url.includes('generativelanguage') ? 'gemini_live' : 'gemini'); upstream.push(ws); return ws as unknown as WebSocket; },
   });
   server.listen(0, '127.0.0.1'); await once(server, 'listening');
   const port = (server.address() as any).port;
@@ -55,6 +56,60 @@ async function fixture(options: { verify?: () => Promise<string>; key?: () => st
   };
   return { port, ws, events, upstream, waitFor, close };
 }
+
+test('new Live comparison validates both keys before connecting and cancels both providers', async () => {
+  const missing = await fixture({ geminiKey: () => undefined });
+  try {
+    missing.ws.send(JSON.stringify({ type: 'auth', source: 'ko', mode: 'gemini_live', token: 'fake' }));
+    assert.equal((await missing.waitFor(e => e.type === 'error')).code, 'GEMINI_LIVE_NOT_CONFIGURED');
+    assert.equal(missing.upstream.length, 0);
+  } finally { await missing.close(); }
+  const f = await fixture();
+  try {
+    f.ws.send(JSON.stringify({ type: 'auth', source: 'ko', mode: 'gemini_live', token: 'fake' }));
+    await f.waitFor(e => e.type === 'ready');
+    f.ws.send(JSON.stringify({ type: 'cancel' })); await once(f.ws, 'close');
+    assert.equal(f.upstream.length, 2);
+    assert.ok(f.upstream.every(s => s.readyState === WebSocket.CLOSED));
+  } finally { await f.close(); }
+});
+
+test('Gemini Live and Realtime receive identical audio and generic prompts, wait for stop, and complete independently', async () => {
+  const f = await fixture({ runGemini: async () => { assert.fail('Flash and separate TTS must not be called'); } });
+  try {
+    f.ws.send(JSON.stringify({ type: 'auth', source: 'ko', mode: 'gemini_live', token: 'fake' }));
+    const ready = await f.waitFor(e => e.type === 'ready');
+    assert.equal(ready.promptEvidence.realtime.sha256, ready.promptEvidence.gemini_live.sha256);
+    assert.equal(ready.requestEvidence.gemini_live.requestedModel, 'gemini-3.8-live');
+    const rt = f.upstream.find(s => s.kind === 'realtime')!, gl = f.upstream.find(s => s.kind === 'gemini_live')!;
+    assert.equal(gl.sent[0].setup.systemInstruction.parts[0].text, rt.sent[0].session.instructions);
+    const pcm = Buffer.alloc(9600, 1);
+    f.ws.send(JSON.stringify({ type: 'audio', audio: pcm.toString('base64') }));
+    await new Promise(resolve => setTimeout(resolve, 15));
+    assert.deepEqual(Buffer.from(rt.sent[1].audio, 'base64'), pcm);
+    assert.deepEqual(Buffer.from(gl.sent[2].realtimeInput.audio.data, 'base64'), pcm);
+    assert.ok(!gl.sent.some(m => m.realtimeInput?.activityEnd));
+    assert.ok(!rt.sent.some(m => m.type === 'response.create'));
+    f.ws.send(JSON.stringify({ type: 'stop' }));
+    const input = await f.waitFor(e => e.type === 'input');
+    for (const provider of ['realtime', 'gemini_live']) assert.deepEqual(input.variants[provider], { pcmSha256: input.pcmSha256, bytes: pcm.length });
+    assert.equal(gl.sent.filter(m => m.realtimeInput?.activityEnd).length, 1);
+    gl.receive({ serverContent: { modelTurn: { parts: [{ inlineData: { mimeType: 'audio/pcm;rate=24000', data: '6APoAw==' } }] },
+      inputTranscription: { text: '가상의 원문' }, outputTranscription: { text: '가상의 번역' }, turnComplete: true } });
+    const gd = await f.waitFor(e => e.type === 'done' && e.provider === 'gemini_live');
+    assert.equal(gd.turnCompletionConfirmed, true); assert.ok(!f.events.some(e => e.type === 'finished'));
+    rt.receive({ type: 'input_audio_buffer.committed', item_id: 'input' });
+    assert.equal(rt.sent.filter(m => m.type === 'response.create').length, 1);
+    rt.receive({ type: 'response.created', response: { id: 'reply' } });
+    rt.receive({ type: 'response.output_audio.delta', response_id: 'reply', delta: '6APoAw==' });
+    rt.receive({ type: 'conversation.item.input_audio_transcription.completed', item_id: 'input', transcript: '가상의 원문' });
+    rt.receive({ type: 'response.done', response: { id: 'reply', status: 'completed', output: [{ content: [{ type: 'audio', transcript: '가상의 번역' }] }] } });
+    await f.waitFor(e => e.type === 'finished');
+    assert.equal(f.events.filter(e => e.type === 'done').length, 2);
+    assert.ok(f.upstream.every(s => s.readyState === WebSocket.CLOSED));
+    assert.doesNotMatch(JSON.stringify(f.events), /fake-google-key|fake-key/);
+  } finally { await f.close(); }
+});
 
 test('owner authorization fails closed and does not call models without an authenticated owner and server key', async () => {
   for (const options of [{ verify: async () => { throw new Error('private error'); } }, { key: () => undefined }]) {

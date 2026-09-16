@@ -16,6 +16,7 @@ COPY --from=build /app/server.ts ./server.ts
 COPY --from=build /app/chiikawa.ts ./chiikawa.ts
 COPY --from=build /app/voiceComparison.ts ./voiceComparison.ts
 COPY --from=build /app/realtimeComparison.ts ./realtimeComparison.ts
+COPY --from=build /app/geminiLiveComparison.ts ./geminiLiveComparison.ts
 COPY --from=build /app/geminiVoice.ts ./geminiVoice.ts
 COPY --from=build /app/voiceEngine.ts ./voiceEngine.ts
 COPY --from=build /app/voiceAuth.ts ./voiceAuth.ts

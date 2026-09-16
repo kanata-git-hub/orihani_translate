@@ -3,17 +3,30 @@ import { Link } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { ComparisonPlayer, concatPcm, decodePcm, encodePcm, wavBytes, RATE } from '../utils/voiceComparison';
 
-type Provider = 'realtime' | 'live' | 'gemini' | 'optimized';
-type Mode = 'realtime' | 'live' | 'gemini_order' | 'gemini_thinking';
-const providers = (mode: Mode): Provider[] => mode === 'realtime' ? ['realtime', 'gemini'] : mode === 'live' ? ['live', 'gemini'] : ['gemini', 'optimized'];
+type Provider = 'gemini_live' | 'realtime' | 'live' | 'gemini' | 'optimized';
+type Mode = 'gemini_live' | 'realtime' | 'live' | 'gemini_order' | 'gemini_thinking';
+const providers = (mode: Mode): Provider[] => mode === 'gemini_live' ? ['realtime', 'gemini_live'] : mode === 'realtime' ? ['realtime', 'gemini'] : mode === 'live' ? ['live', 'gemini'] : ['gemini', 'optimized'];
 type Timing = { marks: Record<string, number>; observedFieldOrder: string[]; tts: object[]; requestedThinkingLevel?: string; usage?: { thoughtsTokenCount?: number } };
 const secondsText = (ms: number | undefined) => ms == null ? '—' : `${(ms / 1000).toFixed(2)}초`;
 type Phase = 'idle' | 'preparing' | 'recording' | 'receiving' | 'finished' | 'failed';
 type Result = { input: string; output: string; done: boolean; error?: string; usageSeconds?: number; turnCompletionConfirmed?: boolean; timing?: Timing; transport?: { marks: Record<string, number>; transcriptionStatus?: string; responseStatus?: string; responseCompleted?: boolean } };
-const empty = (): Record<Provider, Result> => ({ realtime: { input: '', output: '', done: false }, live: { input: '', output: '', done: false }, gemini: { input: '', output: '', done: false }, optimized: { input: '', output: '', done: false } });
-const names = { realtime: 'GPT Realtime 2.1', live: 'GPT-Live 1', gemini: '기존 Gemini', optimized: '개선 Gemini' };
+const empty = (): Record<Provider, Result> => ({ gemini_live: { input: '', output: '', done: false }, realtime: { input: '', output: '', done: false }, live: { input: '', output: '', done: false }, gemini: { input: '', output: '', done: false }, optimized: { input: '', output: '', done: false } });
+const names = { gemini_live: 'Gemini 3.8 Live', realtime: 'GPT Realtime 2.1', live: 'GPT-Live 1', gemini: 'Gemini 3.6 Flash', optimized: '개선 Gemini' };
+const cases = [
+  { id: 'free', title: '자유롭게 말하기', ko: '', ja: '', check: '' },
+  { id: 'checkout', title: '결제 · 부정 표현', ko: '이 물건은 계산하지 말고 저 물건만 계산해 주세요. 결제는 카드로 할게요.', ja: 'この商品は買わずに、あの商品だけお会計をお願いします。支払いはカードでお願いします。', check: '회계·결제의 뜻(会計・支払い)과 이 물건 제외, 저 물건만, 카드 결제가 모두 남아야 합니다.' },
+  { id: 'arithmetic', title: '계산 · 아직 결제 안 함', ko: '이 물건 두 개의 합계 금액을 계산해 주세요. 아직 결제하지는 않을게요.', ja: 'この商品二つの合計金額を計算してください。まだ支払いはしません。', check: '합계를 구하는 계산(計算)과 아직 결제하지 않는다는 뜻을 구분해야 합니다.' },
+  { id: 'tofu', title: '유부초밥 · 유부', ko: '유부초밥 말고 유부만 살 수 있나요?', ja: 'いなり寿司じゃなくて、油揚げだけ買えますか？', check: '유부초밥은 いなり寿司(이나리즈시), 유부는 油揚げ(아부라아게)입니다. 초밥을 제외하고 유부만 원하는지 확인하세요.' },
+  { id: 'stay', title: '2박 3일 · 예약 변경', ko: '2박 3일로 예약했는데 3박 4일로 바꾸고 싶어요. 예약을 취소하지는 말아 주세요.', ja: '2泊3日で予約したんですが、3泊4日に変更したいです。予約はキャンセルしないでください。', check: '박·일 숫자와 변경 방향, 취소하지 말라는 뜻이 모두 맞아야 합니다.' },
+];
 const messages: Record<string, string> = {
-  OPENAI_NOT_CONFIGURED: '앱 서버에 OpenAI 키 연결이 아직 필요합니다. 기존 Gemini 앱은 계속 사용할 수 있습니다.',
+  GEMINI_LIVE_NOT_CONFIGURED: '앱 서버의 Gemini 키 연결을 확인해야 합니다.',
+  GEMINI_LIVE_HTTP_403: 'Gemini 3.8 Live 사용 권한을 확인해야 합니다.',
+  GEMINI_LIVE_HTTP_429: 'Gemini 사용량 또는 요청 제한에 걸렸습니다.',
+  GEMINI_LIVE_EARLY_RESPONSE: 'Gemini가 스탑 전에 응답해 공정한 비교를 중단했습니다.',
+  GEMINI_LIVE_NO_AUDIO: 'Gemini 응답은 끝났지만 번역 음성을 받지 못했습니다.',
+  GEMINI_LIVE_TIMEOUT: 'Gemini 응답 완료를 기다리다 제한 시간이 지났습니다.',
+  OPENAI_NOT_CONFIGURED: '앱 서버의 OpenAI 키 연결을 확인해야 합니다.',
   AUTH_REQUIRED: '로그인을 다시 확인해 주세요. 이 시험은 앱 소유자만 사용할 수 있습니다.',
   ALREADY_RUNNING: '다른 창에서 비교 시험이 진행 중입니다. 그 시험을 종료한 뒤 다시 시작해 주세요.',
   OPENAI_HTTP_401: '앱 서버의 OpenAI 키 인증에 실패했습니다.',
@@ -29,7 +42,7 @@ type Run = {
   inputNode?: MediaStreamAudioSourceNode; timer?: ReturnType<typeof setTimeout>; tick?: ReturnType<typeof setInterval>;
   input: Uint8Array[]; players: Record<Provider, ComparisonPlayer>; results: Record<Provider, Result>;
   inputEvidence?: object; promptEvidence?: object; filePcm?: Uint8Array; fileOffset: number; cancelled: boolean; flush?: () => void;
-  requestEvidence?: object;
+  requestEvidence?: object; exampleId: string;
 };
 
 function download(name: string, value: BlobPart, type: string) {
@@ -40,11 +53,13 @@ function download(name: string, value: BlobPart, type: string) {
 
 export function VoiceComparisonPanel({ getToken }: { getToken: () => Promise<string> }) {
   const requestedMode = new URLSearchParams(location.search).get('mode');
-  const initialMode: Mode = requestedMode === 'live' || requestedMode === 'gemini_order' || requestedMode === 'gemini_thinking' ? requestedMode : 'realtime';
+  const initialMode: Mode = requestedMode === 'realtime' || requestedMode === 'live' || requestedMode === 'gemini_order' || requestedMode === 'gemini_thinking' ? requestedMode : 'gemini_live';
   const [mode, setMode] = useState<Mode>(initialMode);
-  const [source, setSource] = useState('ko'), [primary, setPrimary] = useState<Provider>(initialMode === 'realtime' ? 'realtime' : initialMode === 'live' ? 'live' : 'optimized');
+  const [source, setSource] = useState('ko'), [primary, setPrimary] = useState<Provider>(initialMode === 'realtime' || initialMode === 'gemini_live' ? 'realtime' : initialMode === 'live' ? 'live' : 'optimized');
   const [phase, setPhase] = useState<Phase>('idle'), [error, setError] = useState('');
   const [results, setResults] = useState(empty), [seconds, setSeconds] = useState(0), [, refresh] = useState(0);
+  const [exampleId, setExampleId] = useState('checkout');
+  const example = cases.find(c => c.id === exampleId)!;
   const [file, setFile] = useState<File | null>(null);
   const current = useRef<Run | null>(null), replay = useRef<HTMLAudioElement | null>(null);
   const busy = phase === 'preparing' || phase === 'recording' || phase === 'receiving';
@@ -111,7 +126,7 @@ export function VoiceComparisonPanel({ getToken }: { getToken: () => Promise<str
     try { context = new AudioContext(); }
     catch { setPhase('failed'); setError('이 브라우저에서 음성 시험을 시작하지 못했습니다. Safari 또는 Chrome에서 열어 주세요.'); return; }
     const r: Run = { phase: 'preparing', mode, id: crypto.randomUUID(), createdAt: new Date().toISOString(), source, primary, startedAt: performance.now(), context,
-      input: [], players: { realtime: new ComparisonPlayer(context, primary === 'realtime'), live: new ComparisonPlayer(context, primary === 'live'), gemini: new ComparisonPlayer(context, primary === 'gemini'), optimized: new ComparisonPlayer(context, primary === 'optimized') },
+      exampleId, input: [], players: { gemini_live: new ComparisonPlayer(context, primary === 'gemini_live'), realtime: new ComparisonPlayer(context, primary === 'realtime'), live: new ComparisonPlayer(context, primary === 'live'), gemini: new ComparisonPlayer(context, primary === 'gemini'), optimized: new ComparisonPlayer(context, primary === 'optimized') },
       results: empty(), fileOffset: 0, cancelled: false };
     current.current = r;
     context.onstatechange = () => {
@@ -202,14 +217,15 @@ export function VoiceComparisonPanel({ getToken }: { getToken: () => Promise<str
         return [provider, { pcmSha256: [...new Uint8Array(hash)].map(v => v.toString(16).padStart(2, '0')).join(''), bytes: pcm.length, durationMs: pcm.length / 48 }];
       })));
       download(`voice-comparison-${r.id.slice(0, 8)}.json`, JSON.stringify({
-        reportVersion: 4, runId: r.id, createdAt: r.createdAt, mode: r.mode, audioEvidence,
-        method: r.mode === 'realtime' ? 'Same mono PCM24k input. Realtime receives PCM during recording with turn detection disabled. At stop, commit the complete input; request one audio response only after commit acknowledgment. Gemini receives the identical full WAV at stop with its original prompt, default thinking and sentence TTS. Fresh sessions, no retries or fallback models. Realtime reasoning effort LOW, voice marin, separate gpt-4o-transcribe diagnostic transcription (not translation input). Only selected output is audible; identical browser playback buffering. Realtime completion requires response.done completed. Different model prompts and audio architectures: this is an application strategy comparison.' : r.mode !== 'live' ? 'Same complete mono PCM24k WAV submitted to both Gemini variants at stop, concurrently with randomized dispatch order. ' + (r.mode === 'gemini_thinking' ? 'Identical prompts and transcription-first output order. Only translation thinkingConfig differs: omitted (provider default) vs LOW. ' : 'Only JSON output order instructions differ. ') + 'Same translation model, TTS model/voice and sentence playback. No retries, no conversation history, no OpenAI calls. Only selected output is audible.' : 'Same mono PCM24k input. Live streams during recording; Gemini receives the full WAV at stop using the existing /live pipeline. No conversation history. Playback held until microphone stops; only the selected provider is audible.',
-        models: { ...(r.mode === 'realtime' ? { realtime: 'gpt-realtime-2.1', diagnosticTranscription: 'gpt-4o-transcribe' } : r.mode === 'live' ? { live: 'gpt-live-1' } : { optimized: 'gemini-3.6-flash' }), gemini: 'gemini-3.6-flash', tts: 'gemini-3.1-flash-tts-preview' },
+        reportVersion: 5, runId: r.id, createdAt: r.createdAt, mode: r.mode, audioEvidence,
+        method: r.mode === 'gemini_live' ? 'Identical mono PCM24k streamed to fresh Realtime 2.1 and Gemini 3.8 Live sessions during recording. Same current production interpreter instructions without conversation history, no test answers sent. Both output limits 4096 tokens. Automatic turn detection disabled on both. Randomized stop dispatch: Realtime commit then response.create after acknowledgment; Gemini activityEnd. No retries or fallback. Same browser playback buffer, only selected output audible. Completion: Realtime response.done completed; Gemini turnComplete. Different voices and model architectures. No separate Gemini TTS. Realtime diagnostic transcription uses gpt-4o-transcribe and is not translation input.' : r.mode === 'realtime' ? 'Same mono PCM24k input. Realtime receives PCM during recording with turn detection disabled. At stop, commit the complete input; request one audio response only after commit acknowledgment. Gemini receives the identical full WAV at stop with its original prompt, default thinking and sentence TTS. Fresh sessions, no retries or fallback models. Realtime reasoning effort LOW, voice marin, separate gpt-4o-transcribe diagnostic transcription (not translation input). Only selected output is audible; identical browser playback buffering. Realtime completion requires response.done completed. Different model prompts and audio architectures: this is an application strategy comparison.' : r.mode !== 'live' ? 'Same complete mono PCM24k WAV submitted to both Gemini variants at stop, concurrently with randomized dispatch order. ' + (r.mode === 'gemini_thinking' ? 'Identical prompts and transcription-first output order. Only translation thinkingConfig differs: omitted (provider default) vs LOW. ' : 'Only JSON output order instructions differ. ') + 'Same translation model, TTS model/voice and sentence playback. No retries, no conversation history, no OpenAI calls. Only selected output is audible.' : 'Same mono PCM24k input. Live streams during recording; Gemini receives the full WAV at stop using the existing /live pipeline. No conversation history. Playback held until microphone stops; only the selected provider is audible.',
+        models: r.mode === 'gemini_live' ? { realtime: 'gpt-realtime-2.1', gemini_live: 'gemini-3.8-live', diagnosticTranscription: 'gpt-4o-transcribe' } : { ...(r.mode === 'realtime' ? { realtime: 'gpt-realtime-2.1', diagnosticTranscription: 'gpt-4o-transcribe' } : r.mode === 'live' ? { live: 'gpt-live-1' } : { optimized: 'gemini-3.6-flash' }), gemini: 'gemini-3.6-flash', tts: 'gemini-3.1-flash-tts-preview' },
+        example: { id: r.exampleId, sourceText: cases.find(c => c.id === r.exampleId)?.[r.source as 'ko' | 'ja'], sentToModels: false, note: 'Reading aid only; actual spoken input must be checked against the recording.' },
         source: r.source, primary: r.primary, inputMethod: r.filePcm ? 'file_realtime' : 'microphone',
         readyWaitMs: r.readyAt ? r.readyAt - r.startedAt : null, sourceDurationMs: concatPcm(r.input).length / 48,
         inputEvidence: r.inputEvidence, promptEvidence: r.promptEvidence, requestEvidence: r.requestEvidence, results: Object.fromEntries(providers(r.mode).map(p => [p, r.results[p]])),
         playback: Object.fromEntries(providers(r.mode).map(p => [p, r.players[p].metrics()])),
-        limits: 'Browser audio scheduling, not physical speaker latency. Thresholded signal is not proof of speech or quality. Zero queue gaps does not prove uninterrupted speech. Concurrent requests can contend for provider capacity. If Live is selected, its fixed 30-second capture window does not confirm turn completion. Preparation time is excluded from stop latency and recorded separately. Realtime input transcription is an independent model and may differ from what the translator understood. File/microphone PCM encoding differs from the main app MediaRecorder encoding. No automatic quality scoring.',
+        limits: 'Browser audio scheduling, not physical speaker latency. Thresholded signal is not proof of speech or quality. Zero queue gaps does not prove uninterrupted speech. Concurrent requests can contend for provider capacity. If Live is selected, its fixed 30-second capture window does not confirm turn completion. Preparation time is excluded from stop latency and recorded separately. Realtime input transcription is an independent model and may differ from what the translator understood. Gemini setup acknowledgment does not independently verify the model ID. Transcripts do not prove correct audible pronunciation. No automatic quality scoring.',
       }, null, 2), 'application/json');
     } catch { setError('비교 기록을 저장하지 못했습니다. 다시 눌러 주세요.'); }
   }
@@ -229,10 +245,11 @@ export function VoiceComparisonPanel({ getToken }: { getToken: () => Promise<str
     <div className="bg-white rounded-2xl p-4 space-y-4 border border-stone-200">
       <label className="block">비교할 방식<select aria-label="비교할 방식" disabled={busy} value={mode} onChange={e => {
         cancel(current.current); stopReplay(); current.current = null;
-        const next = e.target.value as Mode; setMode(next); setPrimary(next === 'realtime' ? 'realtime' : next === 'live' ? 'live' : 'optimized');
+        const next = e.target.value as Mode; setMode(next); setPrimary(next === 'realtime' || next === 'gemini_live' ? 'realtime' : next === 'live' ? 'live' : 'optimized');
         setResults(empty()); setPhase('idle'); setError('');
       }} className="block w-full p-3 border rounded-xl mt-1">
-        <option value="realtime">Realtime 2.1 · 기존 Gemini 비교</option>
+        <option value="gemini_live">Gemini 3.8 Live · Realtime 2.1</option>
+        <option value="realtime">Realtime 2.1 · Gemini 3.6 Flash</option>
         <option value="gemini_thinking">Gemini 응답 대기 줄이기 · 이전 시험</option>
         <option value="gemini_order">Gemini 출력 순서 · 이전 시험</option><option value="live">GPT Live · 기존 Gemini 비교</option>
       </select></label>
@@ -242,13 +259,21 @@ export function VoiceComparisonPanel({ getToken }: { getToken: () => Promise<str
       <label className="block">먼저 들을 음성<select aria-label="먼저 들을 음성" disabled={busy} value={primary} onChange={e => setPrimary(e.target.value as Provider)} className="block w-full p-3 border rounded-xl mt-1">
         {providers(mode).map(p => <option key={p} value={p}>{names[p]}</option>)}
       </select></label>
+      <label className="block">시험 문구<select aria-label="시험 문구" disabled={busy} value={exampleId} onChange={e => setExampleId(e.target.value)} className="block w-full p-3 border rounded-xl mt-1">
+        {cases.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+      </select></label>
+      {example.id !== 'free' && <div className="rounded-xl bg-stone-50 p-3 space-y-2">
+        <p className="text-sm text-stone-600">시작 후 아래 문장을 읽어 주세요.</p>
+        <p className="leading-relaxed">{source === 'ko' ? example.ko : example.ja}</p>
+        <details className="text-sm"><summary className="cursor-pointer">무엇을 비교하나요?</summary><p className="mt-2">{example.check}</p><p className="text-xs text-stone-500 mt-1">안내 문구와 정답은 모델에 보내지 않습니다. 실제 녹음만 번역합니다.</p></details>
+      </div>}
       <details><summary className="text-sm cursor-pointer">녹음 파일로 시험하기 (선택)</summary>
         <input aria-label="녹음 파일" type="file" accept="audio/*" disabled={busy} className="text-sm w-full mt-3" onChange={e => setFile(e.target.files?.[0] ?? null)} />
         {file && <button disabled={busy} className="underline text-sm mt-2" onClick={() => setFile(null)}>파일 대신 마이크 사용</button>}
       </details>
-      {mode === 'realtime' && <p className="text-sm text-stone-600">두 방식 모두 말을 끝까지 받은 뒤 번역합니다. Realtime도 스탑 후에 번역을 시작합니다. 빠르기와 표현의 정확성을 함께 비교해 주세요.</p>}
+      {(mode === 'realtime' || mode === 'gemini_live') && <p className="text-sm text-stone-600">두 방식 모두 말을 끝까지 받은 뒤 번역합니다. Realtime도 스탑 후에 번역을 시작합니다. 빠르기와 표현의 정확성을 함께 비교해 주세요.</p>}
       {mode === 'gemini_thinking' && <p className="text-sm text-stone-600">끝까지 들은 같은 녹음을 번역합니다. 개선안은 생각 강도를 낮춰 첫 응답을 앞당길 수 있는지 시험합니다. 번역 품질도 함께 확인해 주세요.</p>}
-      <p className="text-sm text-stone-600">5~15초 정도 말해 주세요. 최대 30초입니다. {mode === 'realtime' ? 'Realtime 번역·참고 받아쓰기와 기존 Gemini 번역·음성 생성 비용이 발생합니다.' : mode !== 'live' ? '기존·개선 Gemini를 각각 한 번 실행하며 Gemini 사용료가 발생합니다. OpenAI는 호출하지 않습니다.' : '두 API의 시험 비용이 발생하며, GPT-Live는 정지 후에도 최대 30초 동안 수신합니다.'}</p>
+      <p className="text-sm text-stone-600">5~15초 정도 말해 주세요. 최대 30초입니다. {mode === 'gemini_live' ? 'Gemini Live·Realtime 번역과 Realtime 참고 받아쓰기 비용이 각각 발생합니다.' : mode === 'realtime' ? 'Realtime 번역·참고 받아쓰기와 기존 Gemini 번역·음성 생성 비용이 발생합니다.' : mode !== 'live' ? '기존·개선 Gemini를 각각 한 번 실행하며 Gemini 사용료가 발생합니다. OpenAI는 호출하지 않습니다.' : '두 API의 시험 비용이 발생하며, GPT-Live는 정지 후에도 최대 30초 동안 수신합니다.'}</p>
       <div className="flex flex-wrap gap-2">
         {!busy && <button className={button} onClick={() => void begin()}>{file ? '이 파일로 비교 시작' : '마이크로 비교 시작'}</button>}
         {phase === 'recording' && <button className={button + ' !bg-red-600 !text-white'} onClick={() => r && void stop(r)}>스탑 · 번역 듣기</button>}
@@ -276,15 +301,16 @@ export function VoiceComparisonPanel({ getToken }: { getToken: () => Promise<str
           <p className="text-xs mt-1">서버 처리 기록입니다. 위의 휴대폰 재생 시간과 기준이 다릅니다.</p>
         </details>}
         {result.transport && <details className="text-sm text-stone-600"><summary className="cursor-pointer">어디서 기다렸나요?</summary>
-          <p className="mt-2">서버 도착 → 입력 확정 확인: {secondsText(result.transport.marks.inputCommitted)}</p>
+          {provider === 'gemini_live' ? <><p className="mt-2">서버 정지 → 첫 음성 데이터: {secondsText(result.transport.marks.firstAudio)}</p><p>서버 정지 → 응답 완료: {secondsText(result.transport.marks.responseDone)}</p><p className="text-xs">수동 발화 종료로 번역을 요청하며, 별도의 입력 확정 확인 이벤트는 없습니다.</p></> : <><p className="mt-2">서버 도착 → 입력 확정 확인: {secondsText(result.transport.marks.inputCommitted)}</p>
           <p>번역 요청 → 첫 음성 데이터: {secondsText(result.transport.marks.firstAudio == null || result.transport.marks.responseRequested == null ? undefined : result.transport.marks.firstAudio - result.transport.marks.responseRequested)}</p>
           <p>서버 도착 → 응답 완료: {secondsText(result.transport.marks.responseDone)}</p>
-          <p>참고 받아쓰기 상태: {result.transport.transcriptionStatus === 'completed' ? '완료' : '미완료'}</p>
+          <p>참고 받아쓰기 상태: {result.transport.transcriptionStatus === 'completed' ? '완료' : '미완료'}</p></>}
         </details>}
-        <div><h3 className="text-xs text-stone-500">{provider === 'realtime' ? '참고 받아쓰기 · 별도 모델' : '받아쓴 원문'}</h3><p className="whitespace-pre-wrap break-words">{result.input || '—'}</p></div>
+        <div><h3 className="text-xs text-stone-500">{provider === 'realtime' ? '참고 받아쓰기 · 별도 모델' : provider === 'gemini_live' ? '참고 받아쓰기 · Gemini' : '받아쓴 원문'}</h3><p className="whitespace-pre-wrap break-words">{result.input || '—'}</p></div>
         <div><h3 className="text-xs text-stone-500">번역문</h3><p className="whitespace-pre-wrap break-words">{result.output || '—'}</p></div>
+        {provider === 'gemini_live' && <p className="text-xs text-stone-600">받아쓰기는 참고용입니다. 원음과 실제 번역 발음을 함께 확인해 주세요.</p>}
         {provider === 'realtime' && <p className="text-xs text-stone-600">번역은 원음으로 처리합니다. 참고 받아쓰기는 별도 모델의 결과이며 번역 입력이 아닙니다.</p>}
-        {provider === 'realtime' && result.done && <p className="text-xs text-stone-600">{result.turnCompletionConfirmed ? 'API 응답 완료 확인 · 번역 정확성과 실제 발음은 직접 확인해 주세요.' : 'API 응답 완료를 확인하지 못했습니다.'}</p>}
+        {(provider === 'realtime' || provider === 'gemini_live') && result.done && <p className="text-xs text-stone-600">{result.turnCompletionConfirmed ? 'API 응답 완료 확인 · 번역 정확성과 실제 발음은 직접 확인해 주세요.' : 'API 응답 완료를 확인하지 못했습니다.'}</p>}
         {result.error && <p className="text-red-700 text-sm">수신 오류: {messages[result.error] ?? result.error}. 일부 결과일 수 있습니다.</p>}
         {result.done && !result.output && <p className="text-red-700 text-sm">번역문을 받지 못했습니다.</p>}
         {result.done && metrics?.firstSignalSample == null && <p className="text-red-700 text-sm">기준 크기 이상의 음성 신호를 찾지 못했습니다.</p>}
