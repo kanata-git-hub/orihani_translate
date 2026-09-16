@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import { buildGeminiVoicePrompt, GEMINI_VOICE_REVISION, GEMINI_THINKING_REVISION } from './geminiVoice.ts';
 import { createRealtimeComparison, REALTIME_MODEL, REALTIME_REVISION } from './realtimeComparison.ts';
+import { createGeminiLiveComparison, pairedVoiceSession, GEMINI_LIVE_MODEL, GEMINI_LIVE_REVISION } from './geminiLiveComparison.ts';
 import type { VoiceTiming, VoiceOutputOrder, VoiceThinkingLevel } from './geminiVoice.ts';
 
 export const LIVE_MODEL = 'gpt-live-1';
@@ -65,6 +66,7 @@ type Dependencies = {
   productionVoice?: WebSocketServer;
   verify?: typeof verifyComparisonOwner;
   key?: () => string | undefined;
+  geminiKey?: () => string | undefined;
   connect?: (url: string, options?: object) => WebSocket;
   tailMs?: number;
   runGemini?: (message: Record<string, any>, send: (event: Record<string, any>) => void,
@@ -93,7 +95,7 @@ export function registerVoiceComparison(server: Server, legacy: WebSocketServer,
   });
   comparison.on('connection', client => {
     let source = 'ko';
-    let mode: 'live' | 'realtime' | 'gemini_order' | 'gemini_thinking' = 'live';
+    let mode: 'live' | 'realtime' | 'gemini_live' | 'gemini_order' | 'gemini_thinking' = 'live';
     const variantOptions = (provider: 'gemini' | 'optimized'): { outputOrder: VoiceOutputOrder; thinkingLevel?: VoiceThinkingLevel } => ({
       outputOrder: mode === 'gemini_order' && provider === 'optimized' ? 'translation_first' : 'transcription_first',
       ...(mode === 'gemini_thinking' && provider === 'optimized' ? { thinkingLevel: 'LOW' as const } : {}),
@@ -105,6 +107,7 @@ export function registerVoiceComparison(server: Server, legacy: WebSocketServer,
     let state = 'auth', uid: string | undefined, closed = false;
     let live: WebSocket | undefined, gemini: WebSocket | undefined;
     let realtime: ReturnType<typeof createRealtimeComparison> | undefined, realtimeEvidence: Record<string, any> | undefined;
+    let geminiLive: ReturnType<typeof createGeminiLiveComparison> | undefined, geminiLiveEvidence: Record<string, any> | undefined;
     let liveReady = false, geminiReady = false, liveDone = false, geminiDone = false, closeRequested = false;
     const liveInputHash = createHash('sha256');
     let liveInputBytes = 0;
@@ -124,6 +127,7 @@ export function registerVoiceComparison(server: Server, legacy: WebSocketServer,
       closed = true; clearTimeout(deadline); clearTimeout(liveDeadline); clearInterval(silence);
       for (const controller of controllers.values()) controller.abort();
       realtime?.cancel();
+      geminiLive?.cancel();
       if (uid) owners.delete(uid);
       for (const ws of [live, gemini]) {
         if (ws?.readyState === WebSocket.OPEN) ws.close();
@@ -136,20 +140,34 @@ export function registerVoiceComparison(server: Server, legacy: WebSocketServer,
       // Do not serialize provider errors, tokens, or request headers.
       client.send(JSON.stringify({ type: 'error', code })); cleanup(); client.close();
     }
-    const providerDone = (provider: 'live' | 'realtime' | 'gemini' | 'optimized', error?: string, timing?: VoiceTiming, transport?: Record<string, any>) => {
-      if (closed || (provider !== 'gemini' ? liveDone : geminiDone)) return;
+    const providerDone = (provider: 'live' | 'realtime' | 'gemini_live' | 'gemini' | 'optimized', error?: string, timing?: VoiceTiming, transport?: Record<string, any>) => {
+      const second = provider === 'gemini' || provider === 'gemini_live';
+      if (closed || (second ? geminiDone : liveDone)) return;
       if (state !== 'stopped') { fail(error ?? 'PROVIDER_ENDED_BEFORE_STOP'); return; }
       controllers.get(provider)?.abort();
-      if (provider !== 'gemini') { liveDone = true; clearInterval(silence); clearTimeout(liveDeadline); live?.close(); if (provider === 'realtime') realtime?.cancel(); }
-      else { geminiDone = true; gemini?.close(); }
+      if (!second) { liveDone = true; clearInterval(silence); clearTimeout(liveDeadline); live?.close(); if (provider === 'realtime') realtime?.cancel(); }
+      else { geminiDone = true; gemini?.close(); geminiLive?.cancel(); }
       send({ type: 'done', provider, error: error ?? null, usageSeconds: provider === 'live' ? usageSeconds : undefined,
-        turnCompletionConfirmed: provider !== 'live' && !error && (provider !== 'realtime' || transport?.responseCompleted === true), timing, transport });
+        turnCompletionConfirmed: provider !== 'live' && !error && (!['realtime', 'gemini_live'].includes(provider) || transport?.responseCompleted === true), timing, transport });
       if (liveDone && geminiDone) { send({ type: 'finished' }); cleanup(); client.close(); }
     };
     const ready = () => {
       if (liveReady && geminiReady && state === 'starting') {
         state = 'ready'; clearTimeout(deadline);
         deadline = setTimeout(() => fail('RECORDING_TIMEOUT'), 40000);
+        if (mode === 'gemini_live') {
+          send({ type: 'ready', mode, maxSeconds: 30, tailSeconds: 0,
+            promptEvidence: {
+              realtime: { revision: GEMINI_LIVE_REVISION, sha256: realtimeEvidence!.promptSha256 },
+              gemini_live: { revision: GEMINI_LIVE_REVISION, sha256: geminiLiveEvidence!.promptSha256 },
+            },
+            requestEvidence: {
+              realtime: { model: REALTIME_MODEL, reasoningEffort: 'low', transcriptionModel: realtimeEvidence!.transcriptionModel, serverSession: realtimeEvidence!.serverSession },
+              gemini_live: { ...geminiLiveEvidence, requestedModel: GEMINI_LIVE_MODEL },
+            },
+          });
+          return;
+        }
         let promptEvidence: Record<string, any> = mode === 'live'
           ? { live: { revision: LIVE_PROMPT_REVISION, sha256: livePromptSha256 } }
           : Object.fromEntries((['gemini', 'optimized'] as const).map(provider => {
@@ -181,7 +199,7 @@ export function registerVoiceComparison(server: Server, legacy: WebSocketServer,
           const owner = await verify(event.token);
           if (closed) return;
           if (owners.has(owner)) { fail('ALREADY_RUNNING'); return; }
-          if (event.mode !== undefined && !['live', 'realtime', 'gemini_order', 'gemini_thinking'].includes(event.mode)) throw new Error();
+          if (event.mode !== undefined && !['live', 'realtime', 'gemini_live', 'gemini_order', 'gemini_thinking'].includes(event.mode)) throw new Error();
           if (event.source !== 'ko' && event.source !== 'ja') throw new Error();
           mode = event.mode ?? 'live'; source = event.source;
           if (mode === 'gemini_order' || mode === 'gemini_thinking') {
@@ -192,6 +210,25 @@ export function registerVoiceComparison(server: Server, legacy: WebSocketServer,
           }
           const key = (deps.key ?? (() => process.env.OPENAI_API_KEY))();
           if (!key) { fail('OPENAI_NOT_CONFIGURED'); return; }
+          if (mode === 'gemini_live') {
+            const geminiKey = (deps.geminiKey ?? (() => process.env.GEMINI_API_KEY))();
+            if (!geminiKey) { fail('GEMINI_LIVE_NOT_CONFIGURED'); return; }
+            uid = owner; owners.add(uid); state = 'starting'; clearTimeout(deadline);
+            deadline = setTimeout(() => fail('CONNECTION_TIMEOUT'), 18000);
+            realtime = createRealtimeComparison({ source, key, connect, session: pairedVoiceSession(source),
+              ready: evidence => { realtimeEvidence = evidence; liveReady = true; ready(); },
+              audio: audio => relayAudio('realtime', audio),
+              text: (input, output) => send({ type: 'text', provider: 'realtime', input, output, append: false }),
+              done: (error, evidence) => providerDone('realtime', error, undefined, evidence),
+            });
+            geminiLive = createGeminiLiveComparison({ source, key: geminiKey, connect,
+              ready: evidence => { geminiLiveEvidence = evidence; geminiReady = true; ready(); },
+              audio: audio => relayAudio('gemini_live', audio),
+              text: (input, output) => send({ type: 'text', provider: 'gemini_live', input, output, append: false }),
+              done: (error, evidence) => providerDone('gemini_live', error, undefined, evidence),
+            });
+            return;
+          }
           if (mode === 'realtime') {
             if (!deps.runGemini) { fail('GEMINI_TEST_NOT_CONFIGURED'); return; }
             uid = owner; owners.add(uid); state = 'starting'; clearTimeout(deadline);
@@ -265,7 +302,8 @@ export function registerVoiceComparison(server: Server, legacy: WebSocketServer,
           const pcm = Buffer.from(event.audio, 'base64');
           if (!pcm.length || pcm.length % 2 || pcm.length > 9600 || inputBytes + pcm.length > MAX_INPUT_BYTES) throw new Error();
           state = 'recording'; inputBytes += pcm.length; input.push(pcm);
-          if (mode === 'realtime') realtime!.append(pcm);
+          if (mode === 'realtime' || mode === 'gemini_live') realtime!.append(pcm);
+          if (mode === 'gemini_live') geminiLive!.append(pcm);
           if (mode === 'live' && !liveDone) {
             if (live!.bufferedAmount > 500000) throw new Error();
             live!.send(JSON.stringify({ type: 'session.input_audio.append', audio: event.audio }));
@@ -273,6 +311,21 @@ export function registerVoiceComparison(server: Server, legacy: WebSocketServer,
           }
         } else if (event.type === 'stop' && state === 'recording') {
           state = 'stopped'; clearTimeout(deadline);
+          if (mode === 'gemini_live') {
+            if (inputBytes < 4800) { fail('REALTIME_INPUT_TOO_SHORT'); return; }
+            const origin = performance.now(), sha256 = createHash('sha256').update(Buffer.concat(input)).digest('hex'); input = [];
+            const dispatchOrder: ('realtime' | 'gemini_live')[] = Math.random() < 0.5 ? ['realtime', 'gemini_live'] : ['gemini_live', 'realtime'];
+            const variants: Record<string, { pcmSha256: string; bytes: number }> = {};
+            for (const provider of dispatchOrder) variants[provider] = (provider === 'realtime' ? realtime! : geminiLive!).stop(origin);
+            if (Object.values(variants).some(v => v.pcmSha256 !== sha256 || v.bytes !== inputBytes)) { fail('INPUT_MISMATCH'); return; }
+            send({ type: 'input', pcmSha256: sha256, bytes: inputBytes, variants, dispatchOrder,
+              transportNote: 'Identical PCM24k streamed to both during recording. At stop: Realtime commit then response.create after acknowledgment; Gemini manual activityEnd. Hashes identify locally queued PCM, not provider receipt hashes.' });
+            deadline = setTimeout(() => {
+              if (!geminiDone) providerDone('gemini_live', 'GEMINI_LIVE_TIMEOUT');
+              if (!liveDone) providerDone('realtime', 'REALTIME_TIMEOUT');
+            }, 90000);
+            return;
+          }
           if (mode !== 'live') {
             if (mode === 'realtime' && inputBytes < 4800) { fail('REALTIME_INPUT_TOO_SHORT'); return; }
             const originMs = performance.now(), pcm = Buffer.concat(input); input = [];
