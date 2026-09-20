@@ -1,3 +1,4 @@
+import { authFetch } from '../authFetch';
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Loader2, Download, AlertCircle, StopCircle, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -168,7 +169,7 @@ export function DocumentTranslateModal({ isOpen, onClose, targetLang, files }: D
         if (!compressed) {
           compressed = await compressImage(file);
         }
-        const response = await fetch('/api/translate-image', {
+        const response = await authFetch('/api/translate-image', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

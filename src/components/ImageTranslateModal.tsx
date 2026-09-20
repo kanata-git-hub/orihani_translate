@@ -1,3 +1,4 @@
+import { authFetch } from '../authFetch';
 import React, { useState, useRef, useEffect, startTransition } from 'react';
 import { X, Loader2, Download, Copy, Check, Calculator, Map, Search, AlignLeft, Info, Lightbulb, ZoomIn, ZoomOut } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -264,7 +265,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
         // Safari html-to-image 버그 방지 (초고해상도 원본 대신 압축된 이미지 사용)
         setImageSrc(`data:${mimeType};base64,${base64}`);
 
-        const response = await fetch('/api/translate-image', {
+        const response = await authFetch('/api/translate-image', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
