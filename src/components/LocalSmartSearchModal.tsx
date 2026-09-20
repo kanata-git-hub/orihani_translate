@@ -1,3 +1,4 @@
+import { authFetch } from '../authFetch';
 import React, { useState } from 'react';
 import { X, Search, Loader2, MapPin, ExternalLink } from 'lucide-react';
 
@@ -78,7 +79,7 @@ export function LocalSmartSearchModal({ isOpen, onClose, targetLanguageCode }: L
 
     setIsLoading(true);
     try {
-      const res = await fetch('/api/smart-search', {
+      const res = await authFetch('/api/smart-search', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ category, targetLanguage: targetLanguageName })

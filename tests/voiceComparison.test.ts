@@ -387,7 +387,7 @@ test('Realtime comparison needs the existing key and cancels both in-flight prov
 test('legacy /live websocket still works; cross-origin comparison handshakes are rejected', async () => {
   const f = await fixture();
   try {
-    const ws = new WebSocket(`ws://127.0.0.1:${f.port}/live`); await once(ws, 'open');
+    const ws = new WebSocket(`ws://127.0.0.1:${f.port}/live`, { origin: `http://127.0.0.1:${f.port}` }); await once(ws, 'open');
     const reply = once(ws, 'message'); ws.send('original-protocol'); assert.equal((await reply)[0].toString(), 'original-protocol'); ws.close();
     const foreign = new WebSocket(`ws://127.0.0.1:${f.port}/voice-compare`, { origin: 'https://elsewhere.example' });
     await once(foreign, 'error'); assert.equal(f.upstream.length, 0);

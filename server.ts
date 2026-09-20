@@ -1,3 +1,5 @@
+import { verifyVoiceUser } from './voiceAuth.ts';
+import { requireUser } from './serverSecurity.ts';
 import { processGeminiAudio } from './geminiVoice.ts';
 import { createVoiceServer, pronunciationRequest } from './voiceEngine.ts';
 import { registerVoiceComparison } from './voiceComparison.ts';
@@ -51,7 +53,7 @@ async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   const server = http.createServer(app);
-  const wss = new WebSocketServer({ noServer: true });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 50 * 1024 * 1024, perMessageDeflate: false });
   registerVoiceComparison(server, wss, {
     productionVoice: createVoiceServer({ guide: async (turn, translation, signal) => {
       const response = await getAi().models.generateContent(pronunciationRequest(turn, translation, signal));
@@ -67,6 +69,11 @@ async function startServer() {
   const sessions = new Map<WebSocket, any>();
 
   wss.on("connection", (clientWs, req) => {
+    if (wss.clients.size > 256) { clientWs.close(1013, 'BUSY'); return; }
+    let pending = 0;
+    let windowStart = Date.now(), messageCount = 0;
+    const idle = setTimeout(() => clientWs.close(1008, 'AUTH_REQUIRED'), 15000);
+    clientWs.on('close', () => clearTimeout(idle));
     let session: any = null;
 
     let isClosing = false;
@@ -79,11 +86,21 @@ async function startServer() {
         return;
       }
 
+      if (!msg || !['process_audio', 'process_text'].includes(msg.type)) return;
+      if (Date.now() - windowStart >= 60000) { windowStart = Date.now(); messageCount = 0; }
+      if (pending >= 8 || ++messageCount > 120) { clientWs.close(1008, 'TOO_MANY_REQUESTS'); return; }
+      pending++;
+      try { await verifyVoiceUser(msg.token); }
+      catch { pending--; clientWs.close(1008, 'AUTH_REQUIRED'); return; }
+      delete msg.token;
+      clearTimeout(idle);
+      if (clientWs.readyState !== WebSocket.OPEN) { pending--; return; }
       const state = sessions.get(clientWs) || { processPromise: Promise.resolve() };
       sessions.set(clientWs, state);
 
       if (msg.type === "process_audio") {
         state.processPromise = state.processPromise.then(async () => {
+          if (clientWs.readyState !== WebSocket.OPEN) return;
           if (state?.session) {
             state.session = null;
           }
@@ -92,9 +109,10 @@ async function startServer() {
             generate: request => fetchWithBackoff(() => getAi().models.generateContentStream(request)),
             send: event => { if (clientWs.readyState === WebSocket.OPEN) clientWs.send(JSON.stringify(event)); },
           });
-        }).catch(e => console.error("Process Audio Promise Error", e));
+        }).catch(e => console.error("Process Audio Promise Error", e)).finally(() => { pending--; });
       } else if (msg.type === "process_text") {
         state.processPromise = state.processPromise.then(async () => {
+          if (clientWs.readyState !== WebSocket.OPEN) return;
           if (state?.session) {
             state.session = null;
           }
@@ -307,7 +325,7 @@ Pronunciation Guide Rules:
           console.error("Pipeline Error:", e);
           clientWs.send(JSON.stringify({ error: e.message, role, turnComplete: true }));
         }
-      }).catch(e => console.error("Process Promise Error", e));
+      }).catch(e => console.error("Process Promise Error", e)).finally(() => { pending--; });
     }
     });
 
@@ -318,6 +336,7 @@ Pronunciation Guide Rules:
 
   registerChiikawa(app);
   app.use(cors());
+  app.use(['/api/translate-image', '/api/tts', '/api/smart-search'], requireUser);
   app.use(express.json({ limit: "50mb" }));
 
   // API Health route

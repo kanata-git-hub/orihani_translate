@@ -5,3 +5,9 @@ dist
 scripts/voice-benchmark/results
 scripts/voice-benchmark/inputs
 *.wav
+
+server-dist
+.env
+.env.*
+*.log
+.editor-test

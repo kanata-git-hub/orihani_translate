@@ -1,3 +1,4 @@
+import { authFetch } from '../authFetch';
 import { RealtimeVoice } from '../voice/RealtimeVoice';
 import { ChiikawaGallery } from '../components/ChiikawaGallery';
 
@@ -5,7 +6,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Mic, Square, Languages, Volume2, VolumeX, Loader2, LogOut, Shield, HelpCircle, X, Pencil, Send, RotateCcw, Camera, Compass } from 'lucide-react';
 import { playAudioChunk, resetAudioQueue, setHoldPlayback } from '../audio';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import { logout } from '../lib/firebaseUtils';
+import { auth, logout } from '../lib/firebaseUtils';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { TutorialModal } from '../components/TutorialModal';
@@ -522,9 +523,12 @@ export default function App() {
     const currentComplete = role === 'foreigner' ? foreignerCompleteRef.current : userCompleteRef.current;
     const opponentComplete = activeTurnContextRef.current;
 
-    getEnsureWs().then(ws => {
+    getEnsureWs().then(async ws => {
+      const token = await auth.currentUser?.getIdToken();
+      if (!token) throw Error('로그인 후 사용해주세요.');
       ws.send(JSON.stringify({ 
         type: 'process_text',
+        token,
         role: role,
         text: textToSend,
         previousText: currentComplete.trim(),
@@ -543,7 +547,7 @@ export default function App() {
     resetAudioQueue();
     initOutCtx();
     try {
-      const res = await fetch('/api/tts', {
+      const res = await authFetch('/api/tts', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text })
