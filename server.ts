@@ -1,3 +1,4 @@
+import { registerChessComparison } from './chessComparison.ts';
 import { verifyVoiceUser } from './voiceAuth.ts';
 import { requireUser } from './serverSecurity.ts';
 import { processGeminiAudio } from './geminiVoice.ts';
@@ -334,6 +335,7 @@ Pronunciation Guide Rules:
     });
   });
 
+  registerChessComparison(app);
   registerChiikawa(app);
   app.use(cors());
   app.use(['/api/translate-image', '/api/tts', '/api/smart-search'], requireUser);
