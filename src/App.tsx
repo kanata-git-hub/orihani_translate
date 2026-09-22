@@ -1,3 +1,5 @@
+import { lazy, Suspense } from 'react';
+const ChessComparison = lazy(() => import('./pages/ChessComparison'));
 // React Router setup
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider } from './contexts/AuthContext';
@@ -24,6 +26,7 @@ export default function App() {
           </Route>
           
           <Route element={<AdminRoute />}>
+            <Route path="/app/chess-compare" element={<Suspense fallback={<div>체스 시험 화면 불러오는 중...</div>}><ChessComparison /></Suspense>} />
             <Route path="/app/voice-compare" element={<VoiceComparison />} />
             <Route path="/admin" element={<AdminDashboard />} />
           </Route>
