@@ -69,17 +69,17 @@ test('selected OpenAI uses identical fixed prompts without needing Gemini; no se
     return json({ ...fixture(emptyAnswer), model: payload.model });
   } }, async base => {
     const config = await (await fetch(base + '/api/chess-benchmark/config', { headers: auth })).text(); assert.ok(!config.includes(key));
-    for (const model of ['gpt-5.6-terra', 'gpt-6-astra']) {
+    for (const model of ['gpt-5.6-terra', 'gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna']) {
       const r = await fetch(base + '/api/chess-benchmark/run', { method: 'POST', headers: auth, body: JSON.stringify({ model, positionId: 'T1', reasoning: 'medium' }) });
       const result = await r.json(); assert.equal(r.status, 200); assert.equal(result.status, 'completed'); assert.ok(!JSON.stringify(result).includes(key));
       assert.equal(result.promptSha256, POSITIONS[0].prompt_sha256);
     }
-    assert.equal(bodies.length, 2); assert.equal(bodies[0].input, bodies[1].input); assert.equal(bodies[0].max_output_tokens, OUTPUT_LIMIT);
+    assert.equal(bodies.length, 4); for (const body of bodies) assert.equal(body.input, bodies[0].input); assert.equal(bodies[0].max_output_tokens, OUTPUT_LIMIT);
     assert.deepEqual(bodies[0].reasoning, { effort: 'medium' });
     for (const bad of [{ model: 'other', positionId: 'T1' }, { model: 'gpt-5.6-terra', positionId: 'not-found' }, { model: 'gpt-5.6-terra', positionId: 'T1', prompt: 'client override' }]) {
       assert.equal((await fetch(base + '/api/chess-benchmark/run', { method: 'POST', headers: auth, body: JSON.stringify(bad) })).status, 400);
     }
-    assert.equal(bodies.length, 2);
+    assert.equal(bodies.length, 4);
   });
 });
 
@@ -89,9 +89,9 @@ test('availability check is generation-free; provider failures do not expose err
     calls++; if (options?.method === 'POST') return json({ secret: 'PROVIDER_SECRET_SENTINEL' }, 403); return json({ id: 'model' });
   } }, async base => {
     const check = await (await fetch(base + '/api/chess-benchmark/check', { method: 'POST', headers: auth, body: JSON.stringify({ models: MODELS.map(m => m.id) }) })).json();
-    assert.equal(check.generationCalls, 0); assert.equal(calls, 2); assert.equal(check.checks[2].status, 'missing_key');
+    assert.equal(check.generationCalls, 0); assert.equal(calls, 4); assert.equal(check.checks.length, 5); assert.equal(check.checks[2].status, 'missing_key');
     const result = await (await fetch(base + '/api/chess-benchmark/run', { method: 'POST', headers: auth, body: JSON.stringify({ model: 'gpt-5.6-terra', positionId: 'T1' }) })).json();
-    assert.equal(calls, 3); assert.equal(result.status, 'api_error'); assert.equal(result.httpStatus, 403); assert.equal(result.costUsd, null);
+    assert.equal(calls, 5); assert.equal(result.status, 'api_error'); assert.equal(result.httpStatus, 403); assert.equal(result.costUsd, null);
     assert.ok(!JSON.stringify(result).includes('PROVIDER_SECRET_SENTINEL'));
   });
 });

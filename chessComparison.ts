@@ -12,6 +12,8 @@ export const MODELS = [
   { id: 'gpt-5.6-terra', name: 'Terra', provider: 'openai', input: 2, cached: .2, output: 12 },
   { id: 'gpt-6-astra', name: 'Astra', provider: 'openai', input: 10, cached: 1, output: 50 },
   { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', provider: 'google', input: .75, cached: .075, output: 3.75 },
+  { id: 'gpt-6-sol', name: 'GPT-6 Sol', provider: 'openai', input: 2, cached: .2, output: 10 },
+  { id: 'gpt-6-luna', name: 'GPT-6 Luna', provider: 'openai', input: .1, cached: .01, output: .5 },
 ] as const;
 export type ModelId = typeof MODELS[number]['id'];
 type Model = typeof MODELS[number];
@@ -126,11 +128,11 @@ export function registerChessComparison(app: Express, deps: Dependencies = {}) {
   const router = express.Router();
   router.use(auth, express.json({ limit: '4kb' }));
   router.get('/config', (_req, res) => res.json({ revision: CHESS_REVISION, createdAt: reference.created_at,
-    outputLimit: OUTPUT_LIMIT, priceCheckedAt: '2026-09-22', models: MODELS.map(m => ({ ...m, configured: !!keys()[m.provider], rate: priceFor(m) })),
+    outputLimit: OUTPUT_LIMIT, priceCheckedAt: '2026-09-23', models: MODELS.map(m => ({ ...m, configured: !!keys()[m.provider], rate: priceFor(m) })),
     positions: POSITIONS.map(p => ({ ...p, reservedUsd: Object.fromEntries(MODELS.map(m => [m.id, reserveCost(p, m)])) })) }));
   router.post('/check', async (req, res) => {
     const ids = req.body?.models;
-    if (!Array.isArray(ids) || ids.length < 1 || ids.length > 3 || new Set(ids).size !== ids.length || ids.some(id => !MODELS.some(m => m.id === id))) { res.status(400).json({ error: 'INVALID_REQUEST' }); return; }
+    if (!Array.isArray(ids) || ids.length < 1 || ids.length > MODELS.length || new Set(ids).size !== ids.length || ids.some(id => !MODELS.some(m => m.id === id))) { res.status(400).json({ error: 'INVALID_REQUEST' }); return; }
     const checks = await Promise.all(ids.map(async id => {
       const m = MODELS.find(m => m.id === id)!; const key = keys()[m.provider];
       if (!key) return { model: id, status: 'missing_key' };
