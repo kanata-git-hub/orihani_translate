@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Chess } from 'chess.js';
+import ChessDiagram, { PositionBoard as Board } from './ChessDiagram';
+import { moveDescription, type DiagramRequest } from './chessVisuals';
 import type { ChessPosition, ModelId } from '../../chessComparison';
 import { authFetch } from '../authFetch';
 import { useAuth } from '../contexts/AuthContext';
@@ -32,32 +33,18 @@ const messages: Record<string, string> = {
   api_error: 'API 요청 실패', stopped: '현재 응답까지 받고 중단', finished: '시험 완료', interrupted: '연결 종료 · 일부 결과만 저장', running: '시험 중', finished_with_errors: '시험 종료 · 일부 응답 실패',
 };
 const explain = (s: string) => messages[s] ?? s;
-const pieces: Record<string, string> = { K: '♚', Q: '♛', R: '♜', B: '♝', N: '♞', P: '♟', k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' };
-const pieceNames: Record<string, string> = { k: '킹', q: '퀸', r: '룩', b: '비숍', n: '나이트', p: '폰' };
-
-function Board({ fen, moves, step, flipped }: { fen: string; moves: string[]; step: number; flipped: boolean }) {
-  let current = fen, invalid = false;
-  try { const b = new Chess(fen); for (const m of moves.slice(0, step)) b.move({ from: m.slice(0, 2), to: m.slice(2, 4), ...(m[4] ? { promotion: m[4] } : {}) }); current = b.fen(); } catch { invalid = true; }
-  const cells: string[] = [];
-  for (const ch of current.split(' ')[0]) { if (ch === '/') continue; if (/\d/.test(ch)) cells.push(...Array(Number(ch)).fill('')); else cells.push(ch); }
-  const indexes = Array.from({ length: 64 }, (_, i) => i); if (flipped) indexes.reverse();
-  const last = !invalid && step > 0 ? moves[step - 1] : null;
-  return <><div className="chess-board" role="img" aria-label="체스판. 흰색 말은 밝은색, 검은색 말은 어두운색입니다.">
-    {indexes.map((idx, display) => { const r = Math.floor(idx / 8), f = idx % 8, sq = String.fromCharCode(97 + f) + (8 - r), p = cells[idx];
-      return <div key={sq} className={`chess-square ${(r + f) % 2 ? 'dark' : 'light'} ${last && (last.slice(0, 2) === sq || last.slice(2, 4) === sq) ? 'last' : ''}`} title={`${sq} ${p ? (p === p.toUpperCase() ? '백 ' : '흑 ') + pieceNames[p.toLowerCase()] : '빈칸'}`}>
-        {display % 8 === 0 && <small className="rank">{8 - r}</small>}{display >= 56 && <small className="file">{String.fromCharCode(97 + f)}</small>}
-        {p && <span className={p === p.toUpperCase() ? 'white-piece' : 'black-piece'}>{pieces[p]}</span>}
-      </div>; })}
-  </div>{invalid && <p className="chess-error">불법 수가 포함되어 시작 위치를 표시합니다.</p>}</>;
-}
-
-function Answer({ answer: a, onLine }: { answer: Record<string, any>; onLine: (moves: string[], label: string) => void }) {
+function Answer({ answer: a, fen }: { answer: Record<string, any>; fen: string }) {
+  const [request, setRequest] = useState<DiagramRequest | null>(null);
+  const diagram = useRef<HTMLDivElement>(null);
+  const show = (value: DiagramRequest) => { setRequest(value); diagram.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); };
+  const onLine = (moves: string[], label: string) => show({ line: moves, label });
   return <div className="chess-answer-body"><p className="chess-summary">{text(a.summary)}</p>
-    {([['나의 약점', 'my_weaknesses'], ['상대의 약점', 'opponent_weaknesses']] as const).map(([label, key]) => <div key={key}><h4>{label}</h4>{array(a[key]).length ? array(a[key]).map((x, i) => <p key={i}><b>{text(x.square)}</b> {text(x.reason)}</p>) : <p className="chess-muted">뚜렷하게 지목한 약점 없음</p>}</div>)}
-    {([['나의 강한 말', 'my_strong_piece'], ['상대의 강한 말', 'opponent_strong_piece']] as const).map(([label, key]) => <div key={key}><h4>{label}</h4><p>{text(a[key]?.square)} {text(a[key]?.reason) || '지목하지 않음'}</p></div>)}
-    <div className="chess-plan"><h4>지금 할 일</h4><p><b>{text(a.plan?.move_uci)}</b> {text(a.plan?.reason)}</p><p>다음 목표: {text(a.plan?.next_goal)}</p></div>
+    <div ref={diagram} className="chess-diagram-anchor"><ChessDiagram fen={fen} answer={a} request={request} /></div>
+    {([['나의 약점', 'my_weaknesses'], ['상대의 약점', 'opponent_weaknesses']] as const).map(([label, key]) => <div key={key}><h4>{label}</h4>{array(a[key]).length ? array(a[key]).map((x, i) => <p key={i}><button type="button" className="chess-location-link" onClick={() => show({ square: text(x.square) })}>판에서 보기 · {text(x.square)}</button> {text(x.reason)}</p>) : <p className="chess-muted">뚜렷하게 지목한 약점 없음</p>}</div>)}
+    {([['나의 강한 말', 'my_strong_piece'], ['상대의 강한 말', 'opponent_strong_piece']] as const).map(([label, key]) => <div key={key}><h4>{label}</h4><p>{text(a[key]?.square) && <button type="button" className="chess-location-link" onClick={() => show({ square: text(a[key]?.square) })}>판에서 보기 · {text(a[key]?.square)}</button>} {text(a[key]?.reason) || '지목하지 않음'}</p></div>)}
+    <div className="chess-plan"><h4>지금 할 일</h4><p><b>{moveDescription(fen, a.plan?.move_uci)}</b> {text(a.plan?.reason)}</p><p>다음 목표: {text(a.plan?.next_goal)}</p></div>
     {array(a.branches).map((x, i) => { const moves = Array.isArray(x.moves_uci) ? x.moves_uci.filter((m: unknown) => typeof m === 'string') : []; return <div key={i}><h4>상대 응수에 따른 흐름 {i + 1}</h4><p>{text(x.explanation)}</p><button type="button" onClick={() => onLine(moves, `해설 진행 ${i + 1}`)}>체스판에서 보기</button><small className="chess-moves">{moves.join(' → ')}</small></div>; })}
-    <div><h4>다른 선택</h4><p><b>{text(a.alternative?.move_uci)}</b> {text(a.alternative?.reason)}</p></div>
+    <div><h4>다른 선택</h4><p><button type="button" className="chess-location-link" onClick={() => onLine([text(a.alternative?.move_uci)], '다른 선택')}>{moveDescription(fen, a.alternative?.move_uci)}</button> {text(a.alternative?.reason)}</p></div>
     {text(a.caveat) && <p className="chess-muted">{text(a.caveat)}</p>}
   </div>;
 }
@@ -162,7 +149,7 @@ export function ChessComparisonPanel({ request = authFetch, storageKey }: { requ
       {(run?.order ?? []).flatMap((model, labelIndex) => visibleResults.filter(r => r.model === model).map(r => <article className="chess-card chess-answer" key={recordKey(r)}>
         <div className="chess-section-head"><h3>{reveal ? config.models.find(m => m.id === model)?.name : `해설 ${String.fromCharCode(65 + labelIndex)}`} <small>{r.repeat}회차</small></h3><span className={r.status === 'completed' ? 'chess-ok' : 'chess-error'}>{explain(r.status)}{r.httpStatus ? ` (${r.httpStatus})` : ''}</span></div>
         {reveal && <p className="chess-metrics">{seconds(r.latencySeconds)} · 비용 {dollars(r.costUsd)}{r.costUpperUsd != null && r.costUpperUsd !== r.costUsd ? `~${dollars(r.costUpperUsd)}` : ''}<br /><small>{r.actualModel || model} {r.tokens ? `· 입력 ${r.tokens.input} / 출력·추론 ${r.tokens.output} 토큰` : ''}</small></p>}
-        {r.answer ? <Answer answer={r.answer} onLine={onLine} /> : <p>{r.answerText || '해설을 받지 못했습니다. 인증 확인 또는 오류 상태를 확인해 주세요.'}</p>}
+        {r.answer ? <Answer answer={r.answer} fen={position!.fen} /> : <p>{r.answerText || '해설을 받지 못했습니다. 인증 확인 또는 오류 상태를 확인해 주세요.'}</p>}
         {r.validation && <details className={r.validation.errors.length ? 'chess-error' : ''}><summary>자동 사실·수순 검사: 오류 {r.validation.errors.length}개 / 검사 {r.validation.checks}개</summary>{r.validation.errors.map((e, i) => <p key={i}>{e}</p>)}<p>오류 0개여도 설명 전체의 정확성을 보장하지 않습니다. 전략적 이유는 별도 검토가 필요합니다.</p></details>}
         {r.answer && <div className="chess-ratings">{(['clarity', 'accuracy'] as const).map(field => <fieldset disabled={busy} key={field}><legend>{field === 'clarity' ? '이해하기 쉬운 정도' : '설명 정확성 · 직접 검토한 경우'}</legend>{[1, 2, 3, 4, 5].map(n => <button key={n} aria-pressed={run?.ratings[recordKey(r)]?.[field] === n} onClick={() => rate(r, field, n)}>{n}</button>)}</fieldset>)}<textarea aria-label="이 해설의 평가 메모" disabled={busy} placeholder="어떤 설명이 이해됐는지, 어떤 부분이 이상했는지 메모" value={run?.ratings[recordKey(r)]?.note ?? ''} onChange={e => rate(r, 'note', e.target.value)} /></div>}
       </article>))}

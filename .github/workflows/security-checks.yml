@@ -17,6 +17,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run lint
       - run: npm run test:security
+      - run: node --experimental-strip-types --test tests/chessComparison.test.ts tests/chessVisuals.test.ts
       - run: npm run build
         env:
           GEMINI_API_KEY: SECURITY_BUILD_SENTINEL_MUST_NOT_SHIP
