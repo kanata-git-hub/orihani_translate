@@ -360,6 +360,9 @@ TASK 1: EXHAUSTIVE OCR & TRANSLATION (CRITICAL)
 - You MUST extract and translate EVERY single piece of text visible in the image to ${targetLang}. Do not skip any text, no matter how small or dense.
 - The translation MUST sound completely natural to a native speaker of the target language (${targetLang}) (e.g., Japanese for Japanese, Korean for Korean, American for English, etc.). Ensure the tone, phrasing, grammar, and vocabulary are localized and authentic. You MUST completely rewrite the sentence to fit the natural grammar and expressions of the target language, avoiding literal or word-for-word translations.
 - If the target language is Korean, you MUST translate like a professional human translator (전문 번역가). Completely eliminate unnatural "translationese" (번역투) and excessive passive voice (피동 표현). Instead of literal structures like "~한다고 알려져 있다", "~의 증가가 확인되었다", or "~하다고 여겨진다", you MUST proactively rephrase sentences into active, natural Korean structures (e.g., "~라고 합니다", "증가했습니다", "~라고 생각합니다"). Adjust particles (조사, e.g., 은/는/이/가/을/를), word order, and verbs to flow perfectly and idiomatically as if originally written in Korean. Do not just replace words; restructure the entire sentence if necessary to ensure the highest translation quality.
+- Preserve brand names, product names and other proper nouns using their established target-language name or a natural transliteration. Do not translate a brand literally as an ordinary word (e.g. モナ王 -> 모나왕 in Korean, not "모나의 왕"). Keep identification and background explanations OUT of blocks[].translation.
+- Recognize genuine puns, dajare (ダジャレ), homophones, double meanings and wordplay across adjacent dialogue blocks. When a natural target-language pun can preserve the meaning, tone and scene, use it in the translation. Do not force an unrelated joke, change factual details, rename a brand just to rhyme, or invent wordplay where none is supported. If it cannot be carried over naturally, translate the intended meaning faithfully and record the lost wordplay separately in wordplay_notes.
+- Never put parenthetical explanations, translator notes, asterisks or note markers in image text. Explanations belong only in extracted_data.brand_notes and extracted_data.wordplay_notes.
 - For each paragraph block, provide the \`[ymin, xmin, ymax, xmax]\` coordinates normalized from 0 to 1000 representing the bounding box encompassing the entire paragraph in the original image.
 - The box MUST tightly enclose only the original text, never enlarge it to fit the translation. Never merge separate speech balloons, panels, captions or signs.
 - For every block provide text_regions: tight rectangles for each original text line/column, in [ymin,xmin,ymax,xmax] coordinates. Include all original glyphs and a tiny background margin, but NEVER include a face, character, speech-balloon outline, panel border, or object outline. Use separate rectangles when artwork separates words. These regions erase the original ink, so precision matters more than combining regions.
@@ -386,6 +389,11 @@ Extract relevant data for any of the fields below that are applicable to the ima
     - If "long_text": provide a structured 3-line summary in ${targetLang}.
     - If "general_info" (or if describing food, objects, animals, landmarks, or the scene): provide a short 1-2 sentence description or identification of the main subject in ${targetLang}.
 
+ADDITIONAL CONTEXT NOTES (apply to ALL categories, including comics and "none"):
+- "brand_notes": An array for named brands/products and unfamiliar proper names actually visible or explicitly mentioned in the image. Each item contains "original" (exact source name), "translation" (the name used in the translation), and "explanation" (1-3 short sentences in ${targetLang} explaining what it is, not merely the name's literal meaning). Explain the product/category and maker only when confidently identified from the image or reliable knowledge. Distinguish visible facts from uncertainty; if identity is ambiguous, say it cannot be determined from this image rather than guessing. Do not invent origin stories, ingredients, prices or current availability. Names in dialogue also qualify; deduplicate repeated names. Use [] if there are none.
+- "wordplay_notes": An array for genuine wordplay actually found in the source, whether successfully adapted or lost in translation. Each item contains "original" (the source phrase(s) needed to understand the joke), "translation" (the translation actually used in the corresponding blocks), and "explanation" (2-4 short sentences in ${targetLang}). Identify the specific source words/readings, their meanings and the sound or double meaning that connects them; for Japanese, include the relevant reading and a target-language pronunciation aid when helpful. Explain whether/how the translation preserves the joke or what it loses. If the interpretation is uncertain, explicitly label it as a possible interpretation. Do not treat ordinary brand names, sound effects or repeated sounds as proof of a pun. Use [] if there is no supported wordplay.
+- These arrays are optional reading behind buttons. Do not copy their explanations into any image block or summary, and do not omit the brand/pun itself from the translation.
+
 Return a strict JSON object with this exact structure:
 {
   "layout_mode": "comic" or "photo",
@@ -398,7 +406,9 @@ Return a strict JSON object with this exact structure:
     "currency": "string | null",
     "location_keyword": "string | null",
     "search_keyword": "string | null",
-    "summary": "string | null"
+    "summary": "string | null",
+    "brand_notes": [{ "original": "source name", "translation": "translated name", "explanation": "what it is" }],
+    "wordplay_notes": [{ "original": "source phrase(s)", "translation": "actual translated phrase(s)", "explanation": "wordplay and translation explanation" }]
   }
 }`;
 
@@ -441,9 +451,33 @@ Return a strict JSON object with this exact structure:
                   currency: { type: Type.STRING, nullable: true },
                   location_keyword: { type: Type.STRING, nullable: true },
                   search_keyword: { type: Type.STRING, nullable: true },
-                  summary: { type: Type.STRING, nullable: true }
+                  summary: { type: Type.STRING, nullable: true },
+                  brand_notes: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        original: { type: Type.STRING },
+                        translation: { type: Type.STRING },
+                        explanation: { type: Type.STRING }
+                      },
+                      required: ["original", "translation", "explanation"]
+                    }
+                  },
+                  wordplay_notes: {
+                    type: Type.ARRAY,
+                    items: {
+                      type: Type.OBJECT,
+                      properties: {
+                        original: { type: Type.STRING },
+                        translation: { type: Type.STRING },
+                        explanation: { type: Type.STRING }
+                      },
+                      required: ["original", "translation", "explanation"]
+                    }
+                  }
                 },
-                required: ["amount", "currency", "location_keyword", "search_keyword", "summary"]
+                required: ["amount", "currency", "location_keyword", "search_keyword", "summary", "brand_notes", "wordplay_notes"]
               }
             },
             required: ["layout_mode", "blocks", "category", "extracted_data"]

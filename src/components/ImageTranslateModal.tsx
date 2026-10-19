@@ -1,10 +1,13 @@
 import { authFetch } from '../authFetch';
-import React, { useState, useRef, useEffect, startTransition } from 'react';
-import { X, Loader2, Download, Copy, Check, Calculator, Map, Search, AlignLeft, Info, Lightbulb, ZoomIn, ZoomOut } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback, startTransition } from 'react';
+import { X, Loader2, Download, Copy, Check, Calculator, Map, Search, AlignLeft, Info, Lightbulb, ZoomIn, ZoomOut, Tag, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 
 import { composeTranslation, validBox, type TextBlock, type ImageLayoutMode } from '../utils/imageLayout';
+
+import { normalizeTranslationNotes } from '../utils/translationNotes';
+import { TranslationNotesDialog } from './TranslationNotesDialog';
 
 interface ExtractedData {
   amount?: number | null;
@@ -12,6 +15,8 @@ interface ExtractedData {
   location_keyword?: string | null;
   search_keyword?: string | null;
   summary?: string | null;
+  brand_notes?: unknown;
+  wordplay_notes?: unknown;
 }
 
 interface ImageTranslateModalProps {
@@ -34,6 +39,10 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
   const [selectedBlock, setSelectedBlock] = useState<TextBlock | null>(null);
   const [showSummaryModal, setShowSummaryModal] = useState(false);
   const [showCalcModal, setShowCalcModal] = useState(false);
+  const [noteKind, setNoteKind] = useState<'brand' | 'wordplay' | null>(null);
+  const closeNotes = useCallback(() => setNoteKind(null), []);
+  const brandNotes = normalizeTranslationNotes(extractedData?.brand_notes);
+  const wordplayNotes = normalizeTranslationNotes(extractedData?.wordplay_notes);
   const [isSaving, setIsSaving] = useState(false);
   const [viewMode, setViewMode] = useState<'original' | 'image' | 'text'>('image');
   const [copiedIndex, setCopiedIndex] = useState<number | 'all' | null>(null);
@@ -101,6 +110,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
         setSelectedBlock(null);
         setShowSummaryModal(false);
         setShowCalcModal(false);
+        setNoteKind(null);
         setLoading(true);
       }, 400);
       return () => clearTimeout(timer);
@@ -115,6 +125,12 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
     // 초기 원본 Data URL 렌더링을 생략하고, 워커에서 압축된 이미지만을 렌더링합니다.
     setLoading(true);
     setBlocks([]);
+    setCategory(null);
+    setExtractedData(null);
+    setSelectedBlock(null);
+    setShowSummaryModal(false);
+    setShowCalcModal(false);
+    setNoteKind(null);
     setImageSrc(null);
     setViewMode('image');
     setZoom(1);
@@ -317,6 +333,24 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
     const baseClass = "flex items-center gap-2 px-4 py-2.5 bg-white/95 backdrop-blur-md rounded-full shadow-[0_4px_15px_rgba(0,0,0,0.1)] border border-white/60 text-sm font-bold text-gray-800 hover:scale-105 active:scale-95 transition-all whitespace-nowrap flex-shrink-0";
     const chips = [];
 
+    if (brandNotes.length > 0) {
+      chips.push(
+        <button key="brand-notes" onClick={() => setNoteKind('brand')} aria-haspopup="dialog" className={baseClass}>
+          <Tag size={18} className="text-[#a86614]" />
+          <span>브랜드·상품 설명</span>
+        </button>
+      );
+    }
+
+    if (wordplayNotes.length > 0) {
+      chips.push(
+        <button key="wordplay-notes" onClick={() => setNoteKind('wordplay')} aria-haspopup="dialog" className={baseClass}>
+          <BookOpen size={18} className="text-indigo-500" />
+          <span>말장난 해설</span>
+        </button>
+      );
+    }
+
     const curr = extractedData?.currency?.toUpperCase();
     if (extractedData?.amount != null && curr && curr !== 'KRW' && curr !== '원' && curr !== '₩') {
       chips.push(
@@ -371,6 +405,8 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
       </div>
     );
   };
+
+  const smartChips = renderSmartChips();
 
   return (
     <AnimatePresence>
@@ -550,17 +586,17 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
           )}
         </div>
         
-        {/* Smart Chip Floating Action */}
+        {/* Context actions stay below the image, outside its export and scroll area. */}
         <AnimatePresence>
-          {!loading && !selectedBlock && viewMode === 'image' && category && category !== 'none' && (
+          {!loading && (!selectedBlock || viewMode !== 'image') && smartChips && (
             <motion.div
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: 20 }}
-              className="absolute bottom-6 left-0 right-0 flex justify-center z-30 pointer-events-none"
+              className="relative shrink-0 flex justify-center border-t border-black/5 bg-gray-50 px-3 py-3 max-h-[30vh] overflow-y-auto z-30"
             >
               <div className="pointer-events-auto">
-                {renderSmartChips()}
+                {smartChips}
               </div>
             </motion.div>
           )}
@@ -599,6 +635,14 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
             </motion.div>
           )}
         </AnimatePresence>
+
+        {noteKind && (
+          <TranslationNotesDialog
+            kind={noteKind}
+            notes={noteKind === 'brand' ? brandNotes : wordplayNotes}
+            onClose={closeNotes}
+          />
+        )}
 
         {/* Smart Chip Modals Overlay */}
         <AnimatePresence>
