@@ -159,7 +159,7 @@ export async function processGeminiAudio(msg: Message, deps: Dependencies, optio
         item.requestedMs = now() - origin; mark('firstTtsRequested');
         try {
           const ttsStream = await generate({
-            model: "gemini-3.1-flash-tts-preview",
+            model: "gemini-3.8-flash-tts",
             contents: [{ parts: [{ text: textToSpeak }] }],
             config: {
               responseModalities: ["AUDIO"],

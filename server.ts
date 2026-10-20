@@ -219,7 +219,7 @@ Pronunciation Guide Rules:
             ttsPromise = ttsPromise.then(async () => {
               try {
                 const ttsStream = await fetchWithBackoff(() => ai.models.generateContentStream({
-                  model: "gemini-3.1-flash-tts-preview",
+                  model: "gemini-3.8-flash-tts",
                   contents: [{ parts: [{ text: textToSpeak }] }],
                   config: {
                     responseModalities: ["AUDIO"],
@@ -515,8 +515,8 @@ Return a strict JSON object with this exact structure:
     try {
       const { text } = req.body;
       const ai = getAi();
-      const response = await fetchWithBackoff(() => ai.models.generateContent({
-        model: 'gemini-3.1-flash-tts-preview',
+      const response = await fetchWithBackoff(() => ai.models.generateContentStream({
+        model: 'gemini-3.8-flash-tts',
         contents: [{ parts: [{ text }] }],
         config: {
           responseModalities: ['AUDIO'],
@@ -527,7 +527,14 @@ Return a strict JSON object with this exact structure:
           },
         },
       }));
-      const base64Audio = response?.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+      // Streaming TTS keeps the existing 24 kHz raw PCM response contract.
+      const audioChunks: Buffer[] = [];
+      for await (const chunk of response) {
+        for (const part of chunk.candidates?.[0]?.content?.parts || []) {
+          if (part.inlineData?.data) audioChunks.push(Buffer.from(part.inlineData.data, 'base64'));
+        }
+      }
+      const base64Audio = Buffer.concat(audioChunks).toString('base64');
       if (base64Audio) {
         return res.json({ audio: base64Audio });
       }

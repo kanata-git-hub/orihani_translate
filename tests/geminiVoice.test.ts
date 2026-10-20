@@ -95,7 +95,7 @@ test('translation-first starts TTS before transcription arrives, preserves all t
   assert.equal(requests[0].model, 'gemini-3.6-flash');
   assert.equal(requests[0].contents[0].parts[0].inlineData.data, input.audio);
   assert.deepEqual(requests.slice(1).map(r => r.contents[0].parts[0].text), ['この商品はまだ会計しないでください。', 'カードで払います。']);
-  assert.ok(requests.slice(1).every(r => r.model === 'gemini-3.1-flash-tts-preview' && r.config.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName === 'Kore'));
+  assert.ok(requests.slice(1).every(r => r.model === 'gemini-3.8-flash-tts' && r.config.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName === 'Kore'));
   assert.equal(events.at(-1).inputTranscription, '이 물건은 아직 계산하지 마세요. 카드로 낼게요.');
   assert.equal(events.at(-1).outputTranscription, 'この商品はまだ会計しないでください。カードで払います。');
   assert.equal(events.at(-1).turnComplete, true);

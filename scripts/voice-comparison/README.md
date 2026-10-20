@@ -18,7 +18,7 @@
 
 `/app/voice-compare?mode=gemini_order` 또는 `Gemini 출력 순서 · 이전 시험`을 선택합니다.
 
-- 기존·개선 Gemini는 모두 스탑 시점까지의 전체 WAV를 받습니다. 번역 모델은 `gemini-3.6-flash`, TTS는 `gemini-3.1-flash-tts-preview`, 음색과 문장 분할·재생 방식도 같습니다.
+- 기존·개선 Gemini는 모두 스탑 시점까지의 전체 WAV를 받습니다. 번역 모델은 `gemini-3.6-flash`, TTS는 `gemini-3.8-flash-tts`, 음색과 문장 분할·재생 방식도 같습니다.
 - 개선안은 JSON 출력 순서만 `status → translation → transcription → pronunciation`으로 바꿉니다. 기존 순서는 `status → transcription → translation → pronunciation`입니다. 단어 예시나 별도 정답은 추가하지 않습니다. 기본 앱은 기존 순서를 계속 사용합니다.
 - 두 요청을 같은 서버에서 함께 시작하며 먼저 호출하는 순서는 무작위입니다. 입력 PCM 해시, 프롬프트 해시·버전, 실제 응답 필드 순서를 보고서에 남깁니다. 병렬 요청은 공급자 용량을 서로 사용할 수 있으므로 한 번의 결과로 일반적인 속도 차이를 확정하지 않습니다.
 - OpenAI 키나 호출은 필요 없습니다. Gemini 번역 두 번과 각 결과의 문장별 TTS 사용료가 발생합니다. 오류를 숨기는 재시도·다른 모델 대체·자동 반복은 없습니다.
@@ -34,7 +34,7 @@
 `비교할 방식`에서 선택하거나 `/app/voice-compare?mode=live`로 엽니다.
 
 - 마이크 또는 최대 30초 녹음 파일을 한 번 입력합니다. 같은 PCM16 mono 24 kHz를 두 모델에 사용하며 서버가 입력 SHA-256을 기록합니다.
-- GPT-Live 1은 녹음 중 200 ms 단위로 입력을 받고, Gemini는 스탑 후 같은 PCM의 WAV 전체를 기존 `/live` 경로로 받습니다. Gemini의 `gemini-3.6-flash`, `gemini-3.1-flash-tts-preview`, 프롬프트와 문장별 TTS를 재사용합니다. 두 경로 모두 이전 대화 문맥을 넣지 않습니다.
+- GPT-Live 1은 녹음 중 200 ms 단위로 입력을 받고, Gemini는 스탑 후 같은 PCM의 WAV 전체를 기존 `/live` 경로로 받습니다. Gemini의 `gemini-3.6-flash`, `gemini-3.8-flash-tts`, 프롬프트와 문장별 TTS를 재사용합니다. 두 경로 모두 이전 대화 문맥을 넣지 않습니다.
 - 스탑 전에는 출력 재생을 보류합니다. 선택한 모델 하나만 소리가 나고 다른 모델도 같은 브라우저 오디오 시계로 무음 예약하여 비교합니다. 녹음 트랙을 끈 다음 재생을 허용합니다.
 - 앞쪽 작은 신호/무음만 임계값 256, pre-roll 200 ms로 처리합니다. 중간 쉼과 원본 PCM은 보존합니다. 초기 재생 여유 150 ms는 기존 앱과 같습니다. 기준 이하의 작은 음성이 잘릴 수 있어 원본 WAV도 저장할 수 있습니다.
 - GPT-Live는 정지 후 30초의 무음을 보내 수신을 유지한 뒤 `session.close`를 요청하고 최대 15초 동안 종료 확인을 기다립니다. 최종 `usage.seconds`는 수신 종료 이벤트에서만 기록합니다. 문장 완료 신호가 없으므로 수신 종료를 번역 완료로 표현하지 않습니다. 이 무음 구간도 OpenAI 과금 시간에 포함됩니다.
