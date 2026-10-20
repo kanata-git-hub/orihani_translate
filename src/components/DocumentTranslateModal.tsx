@@ -2,7 +2,9 @@ import { authFetch } from '../authFetch';
 import React, { useState, useEffect, useRef } from 'react';
 import { X, Loader2, Download, AlertCircle, StopCircle, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { db } from '../lib/db';
+import { useAuth } from '../contexts/AuthContext';
+import { composeTranslation } from '../utils/imageLayout';
+import { createHistoryThumbnail, historyErrorMessage, imageBlob, imageTranslationContent, saveRenderedTranslation, saveTranslation } from '../lib/translationHistory';
 
 import { domToJpeg } from 'modern-screenshot';
 
@@ -81,6 +83,8 @@ const FontAdjustableText = ({ text, box }: { text: string, box: number[] }) => {
 };
 
 export function DocumentTranslateModal({ isOpen, onClose, targetLang, files }: DocumentTranslateModalProps) {
+  const { user } = useAuth();
+  const [historyNotice, setHistoryNotice] = useState('');
   const [pages, setPages] = useState<PageData[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const [stopRequested, setStopRequested] = useState(false);
@@ -133,7 +137,7 @@ export function DocumentTranslateModal({ isOpen, onClose, targetLang, files }: D
   };
 
   useEffect(() => {
-    if (!isOpen || files.length === 0) return;
+    if (!isOpen || files.length === 0) { setSessionId(null); setIsProcessing(false); return; }
 
     const init = async () => {
       processingRef.current = false;
@@ -142,8 +146,8 @@ export function DocumentTranslateModal({ isOpen, onClose, targetLang, files }: D
       setStopRequested(false);
       setShowViewer(false);
 
-      const session = await db.createSession(`번역본 (${files.length}장) - ${new Date().toLocaleString()}`, files.length);
-      setSessionId(session.id);
+      setHistoryNotice('');
+      setSessionId(crypto.randomUUID());
     };
 
     init();
@@ -203,14 +207,17 @@ export function DocumentTranslateModal({ isOpen, onClose, targetLang, files }: D
         originalBase64: `data:${compressed!.mimeType};base64,${compressed!.base64}`,
         blocks: resultData.blocks
       } : p));
-      await db.savePage({
-        id: `${sessionId}_${pageIdx}`,
-        sessionId: sessionId!,
-        pageIndex: pageIdx,
-        originalImageBase64: `data:${compressed!.mimeType};base64,${compressed!.base64}`,
-        translatedImageBase64: '',
-        blocks: resultData.blocks
-      });
+      if (user?.uid) {
+        const ownerId = user.uid;
+        try {
+          const content = imageTranslationContent(imageBlob(compressed.mimeType, compressed.base64), resultData, targetLang);
+          const id = await saveTranslation(ownerId, content, `${file.name} (${pageIdx + 1}/${files.length})`);
+          // Compose locally and cache each completed page, even if a later page fails.
+          void composeTranslation(`data:${compressed.mimeType};base64,${compressed.base64}`, content.blocks, { mode: content.layoutMode })
+            .then(async blob => saveRenderedTranslation(ownerId, id, blob, await createHistoryThumbnail(blob)))
+            .catch(() => { if (checkMounted()) setHistoryNotice('번역문은 저장했지만 일부 완성 이미지는 기록을 열 때 기기에서 다시 표시합니다.'); });
+        } catch (error) { if (checkMounted()) setHistoryNotice(historyErrorMessage(error)); }
+      }
     } else {
       // If stopped or errored, mark as error so we can retry or at least show it
       setPages(prev => prev.map((p, i) => i === pageIdx ? { ...p, status: 'error' } : p));
@@ -410,6 +417,8 @@ export function DocumentTranslateModal({ isOpen, onClose, targetLang, files }: D
               </button>
             </div>
           </div>
+
+          {historyNotice && <p role="status" className="absolute top-16 left-0 right-0 z-50 px-4 py-2 bg-amber-100 text-amber-900 text-xs">{historyNotice}</p>}
 
           {/* Close Confirm Modal */}
           {showConfirmClose && (

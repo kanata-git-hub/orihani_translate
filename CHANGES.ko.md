@@ -1,46 +1,139 @@
-# 메인 음성 번역 Realtime 2.1 전환 (2026-09-14)
+# 브라우저 번역 히스토리 (2026-10-20)
 
-- 메인 앱 양쪽 마이크는 `gpt-realtime-2.1`을 사용합니다. 한국어 ↔ 일본어·영어·중국어(표준중국어)·스페인어·프랑스어·독일어·이탈리아어·네덜란드어 선택을 유지합니다. 자연스럽고 예의 바른 말투, 전체 발화의 부정·조건·숫자 보존, 최근 2분 이내 상대 발언 문맥을 지시합니다. 언어별 실제 품질은 별도 확인이 필요합니다.
-- 녹음 중 PCM을 보내고, 스탑에서 마이크를 끈 뒤 마지막 조각까지 보냅니다. 서버의 입력 확정 응답을 받은 후 번역 응답을 한 번 요청합니다. 자동 발화 감지는 끕니다. 최대 5분 자동 종료를 유지하고 무음 종료는 사용하지 않습니다. 서버도 입력 5분, 녹음 대기 310초(전송 여유 포함), 번역 응답 180초, 출력 음성 10분에 상한을 둡니다.
-- 초기화·언어 변경·로그아웃·화면 이탈·연결 오류 시 녹음과 유료 연결을 닫습니다. 녹음 권한이나 연결 대기 중 스탑도 처리합니다. 이미 제공사가 처리한 사용량이 취소로 환불된다는 뜻은 아닙니다.
-- 번역 음성과 번역문은 Realtime이 생성합니다. 원음 받아쓰기는 별도 `gpt-4o-transcribe`이며 번역 입력으로 쓰지 않습니다. 발음 읽기 안내만 기존 `gemini-3.6-flash`로 뒤이어 생성하며 음성 재생과 다음 녹음을 막지 않습니다. 안내 실패는 번역 실패로 표시하지 않습니다. 자동 음성 재생을 끄고 녹음하면 Realtime에 문자 응답만 요청합니다. 이미 시작한 음성 생성 중 음소거는 재생만 중단합니다.
-- 문자·이미지 번역과 수동 다시 읽기의 기존 Gemini 경로, 아이콘, 사진 저장, 공유 기능은 유지합니다. 비교 화면은 이전 Gemini 기준을 그대로 비교합니다.
-- 서버의 기존 `OPENAI_API_KEY` Secret Manager 연결을 재사용합니다. 새 `/voice` 연결은 Firebase 토큰과 `approved_users` 허용 목록을 확인합니다. 토큰과 키는 URL·로그·저장소에 남기지 않습니다. 원음·번역도 서버 파일에 저장하지 않습니다.
-- 자동 검사는 합성 PCM과 모의 제공자로 72개를 통과했습니다. TypeScript와 production 빌드를 확인했습니다. 새 메인 앱의 실제 휴대폰 발음·재생 및 모든 언어의 번역 품질을 자동 테스트로 확인했다고 주장하지 않습니다.
+- 메인 화면의 현지 검색 옆에 히스토리 버튼을 추가했습니다. 글·음성 번역 결과와 단일/여러 장 이미지 번역 결과를 완료 시 저장하고, 최신순으로 표시합니다.
+- IndexedDB에 로그인 계정별로 원문·번역문·이미지·기존 해설을 보관합니다. 완성 이미지는 Blob으로 저장하며, 목록은 작은 미리보기만 읽고 30건씩 불러옵니다.
+- 기록 열람은 번역 API나 TTS를 호출하지 않습니다. 완성 이미지 캐시가 없으면 보관된 원본과 번역문으로 기기에서 다시 그립니다. 읽어도 번역 시각이나 목록 순서는 바뀌지 않습니다.
+- 개별/전체 삭제 및 저장 공간 부족 안내를 제공합니다. 서버 동기화는 하지 않으며 사이트 데이터 삭제 시 기록도 삭제됩니다. 기능 추가 이전에 저장하지 않았던 결과는 복구하지 않습니다.
+- 검증: `npm run test:history`, TypeScript, 기존 보안·이미지·해설 회귀 검사, production 빌드, npm audit. 실제 휴대폰 화면 조작 검사는 수행하지 않았습니다.
 
-# 모바일 번역 개선 (이전 기록)
+import React, { useEffect, useRef, useState } from 'react';
+import { ArrowLeft, Check, Copy, History, Image as ImageIcon, Loader2, MessageSquareText, Trash2, X } from 'lucide-react';
+import { clearTranslations, deleteTranslation, getTranslation, languageLabel, listTranslations, type HistoryRecord, type HistorySummary } from '../lib/translationHistory';
+import { ImageTranslateModal } from './ImageTranslateModal';
 
-기준 커밋: e471f5d903c4d02f74d3957a0f6edfabc2175ab6
+function Thumbnail({ blob }: { blob?: Blob }) {
+  const [src, setSrc] = useState('');
+  useEffect(() => {
+    if (!blob) { setSrc(''); return; }
+    const url = URL.createObjectURL(blob);
+    setSrc(url);
+    return () => URL.revokeObjectURL(url);
+  }, [blob]);
+  return src ? <img src={src} alt="" className="h-16 w-14 rounded-lg object-contain bg-stone-100" /> : <ImageIcon className="h-7 w-7 text-[#a86614]" />;
+}
 
-## 변경 내용
+export function TranslationHistoryModal({ ownerId, onClose }: { ownerId: string; onClose: () => void }) {
+  const [entries, setEntries] = useState<HistorySummary[]>([]);
+  const [selected, setSelected] = useState<HistoryRecord | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [hasMore, setHasMore] = useState(false);
+  const [error, setError] = useState('');
+  const [copied, setCopied] = useState(false);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const alive = useRef(true);
+  const currentOwner = useRef(ownerId);
+  currentOwner.current = ownerId;
 
-- 이미지: 번호나 이미지 아래 목록을 추가하지 않습니다. OCR의 원문 줄별 영역과 번역 배치용 말풍선 내부 다각형을 분리합니다. 원문 글자색 픽셀을 주변 배경색으로 복원하고, 말풍선의 각 높이에서 사용 가능한 폭에 맞춰 번역문을 배치합니다. 한국어 단어를 유지하는 줄바꿈을 우선하며 필요할 때 글자 크기를 줄입니다. 큰 흰 사각형은 그리지 않으며 이미지 크기도 유지합니다. 색이 있는 그림은 글자 지우기에서 보호합니다. AI 위치 인식 오차와 복잡한 배경·유색 효과음은 실측 검증이 필요하며 완벽한 복원을 보장하지 않습니다.
-- 저장: 화면과 다운로드에 동일한 PNG를 사용합니다. 다운로드 클릭 전에 파일을 준비하며, 파일 공유를 지원하면 기기 공유 메뉴를 엽니다. 아이폰에서 이미지 저장 또는 파일에 저장을 선택할 수 있는 구조입니다. 취소는 오류로 표시하지 않습니다. 공유 미지원 브라우저는 Blob 다운로드를 사용합니다. 실제 아이폰 검증은 아직 필요합니다.
-- 음성: 워키토키 흐름을 유지합니다. 공백 없는 일본어 문장 끝에서 TTS를 시작하고, 번역 JSON 필드가 닫히면 발음 가이드 생성 완료를 기다리지 않고 남은 번역을 TTS에 보냅니다. 이미 재생 중이거나 예약된 소리는 다음 녹음 시작 시 중단합니다. 마이크 준비는 웹소켓 연결 완료를 기다리지 않으며, 연결 중 요청은 같은 연결을 공유합니다. 녹음 권한 대기 중 취소도 처리합니다. 실제 AI 속도·정확도를 측정한 결과는 없습니다.
-- 치이카와: 양쪽 카메라 오른쪽에 우사기 얼굴 아이콘을 추가했습니다. X 연결 시 @ngnchiikawa의 사진을 최신순 최대 9장, 3열로 표시하고 선택하면 한국어 이미지 번역으로 전달합니다. 현재는 사용자 요청대로 API 연결 준비 상태입니다.
+  const load = async (more = false) => {
+    setLoading(true); setError('');
+    try {
+      const next = await listTranslations(ownerId, more ? entries.at(-1) : undefined);
+      if (!alive.current || currentOwner.current !== ownerId) return;
+      setEntries(previous => more ? [...previous, ...next] : next);
+      setHasMore(next.length === 30);
+    } catch { if (alive.current && currentOwner.current === ownerId) setError('기록을 불러오지 못했습니다. 브라우저 저장소 설정을 확인한 뒤 다시 시도해 주세요.'); }
+    finally { if (alive.current && currentOwner.current === ownerId) setLoading(false); }
+  };
 
-## 적용
+  useEffect(() => {
+    alive.current = true;
+    setSelected(null); setEntries([]);
+    void load();
+    return () => { alive.current = false; };
+  }, [ownerId]);
 
-기존 GEMINI_API_KEY 및 Firebase 설정을 유지합니다. 아래는 유지보수용 검증 명령입니다.
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    dialogRef.current?.focus();
+    return () => previous?.focus();
+  }, [selected?.id]);
 
-```sh
-npm ci
-npm run lint
-npm run build
-node --experimental-strip-types --test tests/regressions.test.ts
-```
+  const openEntry = async (id: string) => {
+    setBusy(true); setError(''); setCopied(false);
+    try {
+      const record = await getTranslation(ownerId, id);
+      if (!alive.current || currentOwner.current !== ownerId) return;
+      if (record) setSelected(record);
+      else { setError('삭제되었거나 찾을 수 없는 기록입니다.'); await load(); }
+    } catch { if (alive.current && currentOwner.current === ownerId) setError('이 기록을 열지 못했습니다. 다시 시도해 주세요.'); }
+    finally { if (alive.current && currentOwner.current === ownerId) setBusy(false); }
+  };
 
-기존 Cloud Run 배포 흐름으로 새 이미지를 배포합니다. Dockerfile에는 새 서버 모듈 chiikawa.ts 복사를 추가했습니다. 별도의 새 npm 의존성은 없습니다.
+  const remove = async (id?: string) => {
+    if (!window.confirm(id ? '이 번역 기록을 삭제하시겠습니까?' : '이 브라우저에 저장된 내 번역 기록을 모두 삭제하시겠습니까?')) return;
+    setBusy(true); setError('');
+    try {
+      if (id) await deleteTranslation(ownerId, id);
+      else await clearTranslations(ownerId);
+      setSelected(null);
+      await load();
+    } catch { setError('기록을 삭제하지 못했습니다. 다시 시도해 주세요.'); }
+    finally { setBusy(false); }
+  };
 
-X 연결을 나중에 활성화할 때 서버 환경에 X_BEARER_TOKEN을 설정하세요. VITE_ 접두어를 붙이거나 브라우저에 토큰을 넣지 마세요. API 사용 권한과 요금은 X 계정에서 확인해야 합니다. 조회는 15분 캐시하고 한 번에 최대 3페이지를 읽습니다. 최신 게시물 중 사진을 고르며 만화인지 자동 분류하지 않으므로 공식 계정의 다른 사진도 포함될 수 있습니다. 토큰이 없으면 유료 요청 없이 준비 안내를 표시합니다.
+  const back = () => selected ? setSelected(null) : onClose();
+  const text = selected?.content.kind === 'text' ? selected.content : null;
+  const date = (time: number) => new Date(time).toLocaleString('ko-KR', { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-## 검증 결과와 남은 확인
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') { event.stopPropagation(); back(); }
+    if (event.key === 'Tab') {
+      const buttons = [...(dialogRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], [tabindex="0"]') || [])];
+      if (!buttons.length) { event.preventDefault(); return; }
+      const first = buttons[0], last = buttons.at(-1)!;
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) { event.preventDefault(); last.focus(); }
+      else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialogRef.current)) { event.preventDefault(); first.focus(); }
+    }
+  };
 
-- TypeScript 검사 통과.
-- Vite production build 통과. 이 Windows 환경의 빌드 도구 경로 제한을 피하기 위해 --configLoader native 사용. 기본 빌드 명령은 환경의 디렉터리 접근 오류로 여기서는 실행되지 않았습니다.
-- Node 회귀 테스트: 음성 중단/보류, OCR 좌표 검증, 원문 영역 외 픽셀 보존, 비사각형 말풍선 안의 전체 번역 배치, X 미설정 상태, 사진 필터·최신순·9장·캐시·허용되지 않은 이미지 ID 거부.
-- 390px 모바일 폭에서 이미지 번역 및 치이카와 준비 안내를 확인. 식질은 첨부 만화와 수동 위치 데이터를 사용한 화면 검증이며 실제 AI 평가가 아닙니다.
-- 실제 구글 로그인: Codex 내 브라우저에서 auth/network-request-failed. 원인 확정 및 해결은 하지 않았습니다. 기존 브라우저에서의 성공 여부와 분리해서 확인해야 합니다.
-- 배포 후 아이폰 Safari에서 번역 완료 → 저장 → 이미지 저장/파일 저장 → 사진/파일 열기 순서로 확인하세요. 짧은 한국어·일본어 발화의 녹음 종료부터 첫 소리까지의 지연, 소리 재생 중 다음 녹음 시작, 무음 입력도 실기기로 확인해야 합니다.
+  if (selected?.content.kind === 'image') return <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="이미지 번역 기록" onKeyDown={handleKeyDown} className="fixed inset-0 z-[150] outline-none">
+    <ImageTranslateModal isOpen file={null} targetLang={selected.targetLang} savedRecord={selected} onClose={() => setSelected(null)} />
+  </div>;
 
-참고: [Web Share](https://developer.mozilla.org/en-US/docs/Web/API/Navigator/share), [X 타임라인 API](https://docs.x.com/x-api/posts/timelines/integrate).
+  return <div className="fixed inset-0 z-[150] bg-black/55 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4">
+    <div ref={dialogRef} tabIndex={-1} role="dialog" aria-modal="true" aria-label="번역 히스토리" className="w-full max-w-xl h-[92dvh] rounded-3xl bg-[#fffcf6] text-[#552c24] shadow-2xl flex flex-col overflow-hidden outline-none"
+      onKeyDown={handleKeyDown}>
+      <header className="flex items-center gap-2 p-4 border-b border-[#552c24]/10 bg-white">
+        {selected ? <button onClick={back} aria-label="기록 목록으로" className="p-2 rounded-full hover:bg-stone-100"><ArrowLeft size={21} /></button> : <History size={23} />}
+        <div className="flex-1 min-w-0"><h2 className="text-lg font-bold">{selected ? '번역 기록' : '히스토리'}</h2><p className="text-xs text-stone-500">{selected ? date(selected.createdAt) : '최근 번역부터 · 이 브라우저에 저장'}</p></div>
+        {!selected && entries.length > 0 && <button disabled={busy || loading} onClick={() => void remove()} className="text-xs px-2 py-2 text-stone-500 disabled:opacity-40">전체 삭제</button>}
+        <button onClick={onClose} aria-label="히스토리 닫기" className="p-2 rounded-full hover:bg-stone-100"><X size={23} /></button>
+      </header>
+      <div className="flex-1 overflow-y-auto overscroll-contain p-4">
+        {error && <div role="alert" className="rounded-xl bg-red-50 text-red-800 p-3 text-sm mb-3">{error}<button onClick={() => void load()} className="ml-2 underline">다시 시도</button></div>}
+        {text ? <div className="space-y-4">
+          <section className="rounded-2xl border border-stone-200 bg-white p-4"><h3 className="text-xs font-bold text-stone-500 mb-2">원문 · {languageLabel(text.sourceLang)}</h3><p className="whitespace-pre-wrap break-words text-base select-text">{text.original}</p></section>
+          <section className="rounded-2xl border border-[#e9be56] bg-[#fff5d6] p-4"><h3 className="text-xs font-bold text-[#936618] mb-2">번역 · {languageLabel(text.targetLang)}</h3><p className="whitespace-pre-wrap break-words text-lg font-medium select-text">{text.translation}</p></section>
+          {text.pronunciation && <section className="px-1"><h3 className="text-xs font-bold text-stone-500 mb-2">발음</h3><p className="whitespace-pre-wrap break-words text-sm text-stone-600">{text.pronunciation}</p></section>}
+          <div className="flex justify-between gap-3"><button className="flex items-center gap-2 rounded-xl bg-[#552c24] text-white px-4 py-3 text-sm font-bold" onClick={async () => {
+            try { await navigator.clipboard.writeText(text.translation); setCopied(true); }
+            catch { setError('복사하지 못했습니다. 번역문을 길게 눌러 복사해 주세요.'); }
+          }}>{copied ? <Check size={17} /> : <Copy size={17} />}{copied ? '복사됨' : '번역문 복사'}</button><button disabled={busy} onClick={() => void remove(selected!.id)} className="p-3 text-stone-500" aria-label="이 기록 삭제"><Trash2 size={19} /></button></div>
+        </div> : <>
+          {entries.length === 0 && !loading && !error && <div className="py-16 text-center"><History className="mx-auto mb-4 text-[#bba899]" size={42} /><h3 className="font-bold">아직 번역 기록이 없습니다</h3><p className="text-sm text-stone-500 mt-2">글이나 사진을 번역하면 자동으로 저장됩니다.</p></div>}
+          <ul className="space-y-3">{entries.map(entry => <li key={entry.id} className="flex items-stretch rounded-2xl border border-[#552c24]/10 bg-white overflow-hidden">
+            <button disabled={busy} onClick={() => void openEntry(entry.id)} className="flex flex-1 min-w-0 gap-3 p-3 text-left hover:bg-[#fff5d6] disabled:opacity-50">
+              <span className="flex w-14 h-16 shrink-0 items-center justify-center rounded-lg bg-[#fff5d6]">{entry.kind === 'image' ? <Thumbnail blob={entry.thumbnail} /> : <MessageSquareText size={25} className="text-[#a86614]" />}</span>
+              <span className="min-w-0 flex-1"><span className="flex flex-wrap gap-x-2 gap-y-0.5 text-[11px] text-stone-500 mb-1"><span>{entry.kind === 'image' ? '이미지' : '글'} · {languageLabel(entry.targetLang)}</span><time className="ml-auto">{date(entry.createdAt)}</time></span><span className="block truncate font-bold text-sm">{entry.title}</span><span className="block line-clamp-2 break-words text-xs text-stone-500 mt-1">{entry.preview || '번역 이미지 보기'}</span></span>
+            </button>
+            <button disabled={busy || loading} onClick={() => void remove(entry.id)} aria-label={`${entry.title} 기록 삭제`} className="px-3 text-stone-400 hover:text-red-600 disabled:opacity-40"><Trash2 size={16} /></button>
+          </li>)}</ul>
+          {(loading || busy) && <div role="status" className="flex justify-center items-center gap-2 py-5 text-sm text-stone-500"><Loader2 className="animate-spin" size={19} />기록을 불러오는 중</div>}
+          {hasMore && !loading && <button disabled={busy} onClick={() => void load(true)} className="w-full rounded-xl border border-stone-200 py-3 mt-4 text-sm font-bold">이전 기록 더 보기</button>}
+        </>}
+      </div>
+      <footer className="px-4 py-3 border-t border-[#552c24]/10 text-[11px] text-stone-500 bg-white">기록 열람은 AI를 다시 사용하지 않습니다. 사이트 데이터를 삭제하면 기록도 삭제됩니다.</footer>
+    </div>
+  </div>;
+}

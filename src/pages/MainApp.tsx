@@ -1,9 +1,11 @@
 import { authFetch } from '../authFetch';
+import { TranslationHistoryModal } from '../components/TranslationHistoryModal';
+import { historyErrorMessage, saveTranslation, type TextTranslation } from '../lib/translationHistory';
 import { RealtimeVoice } from '../voice/RealtimeVoice';
 import { ChiikawaGallery } from '../components/ChiikawaGallery';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Languages, Volume2, VolumeX, Loader2, LogOut, Shield, HelpCircle, X, Pencil, Send, RotateCcw, Camera, Compass } from 'lucide-react';
+import { Mic, Square, Languages, Volume2, VolumeX, Loader2, LogOut, Shield, HelpCircle, X, Pencil, Send, RotateCcw, Camera, Compass, History } from 'lucide-react';
 import { playAudioChunk, resetAudioQueue, setHoldPlayback } from '../audio';
 import { useLocalStorage } from '../hooks/useLocalStorage';
 import { auth, logout } from '../lib/firebaseUtils';
@@ -32,6 +34,14 @@ export default function App() {
   const navigate = useNavigate();
   const location = useLocation();
   const { isAdmin, user } = useAuth();
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyNotice, setHistoryNotice] = useState('');
+  useEffect(() => { setShowHistory(false); setHistoryNotice(''); }, [user?.uid]);
+  const pendingTextHistory = useRef<{ ownerId: string; role: 'foreigner' | 'user'; content: TextTranslation }[]>([]);
+  const saveTextHistory = (ownerId: string, content: TextTranslation) => {
+    if (!content.original.trim() || !content.translation.trim()) return;
+    void saveTranslation(ownerId, content).catch(error => setHistoryNotice(historyErrorMessage(error)));
+  };
   
   const handleLogout = async () => {
     cancelVoice();
@@ -202,6 +212,7 @@ export default function App() {
         try {
           const msg = JSON.parse(event.data);
           if (msg.error) {
+            pendingTextHistory.current.shift();
             console.error("Live API Error:", msg.error);
             stopRecording();
             setProcessingRole(null);
@@ -240,6 +251,16 @@ export default function App() {
           
           const currentMic = msg.role || activeMicRef.current;
           
+          const pendingHistory = pendingTextHistory.current[0];
+          if (pendingHistory && pendingHistory.role === currentMic) {
+            if (typeof msg.outputTranscription === 'string') pendingHistory.content.translation = msg.outputTranscription;
+            if (typeof msg.outputPronunciation === 'string') pendingHistory.content.pronunciation = msg.outputPronunciation;
+            if (msg.turnComplete) {
+              saveTextHistory(pendingHistory.ownerId, pendingHistory.content);
+              pendingTextHistory.current.shift();
+            }
+          }
+
           if (msg.partial) {
              if (msg.inputTranscription) {
                 if (currentMic === 'foreigner') foreignerPendingRef.current = msg.inputTranscription;
@@ -309,6 +330,7 @@ export default function App() {
       };
       
       ws.onclose = () => {
+        pendingTextHistory.current = [];
         reject(new Error('음성 번역 연결이 종료되었습니다.'));
         if (wsRef.current === ws) {
           wsRef.current = null;
@@ -388,6 +410,7 @@ export default function App() {
     }
 
     const current = () => attempt === recordingAttemptRef.current;
+    let savedTurn = false;
     voiceRef.current = new RealtimeVoice({
       role, foreignerLang, ttsEnabled: ttsEnabledRef.current,
       opponentText: activeTurnContextRef.current.trim().slice(0, 12000),
@@ -427,6 +450,17 @@ export default function App() {
       },
       done: () => {
         if (!current()) return;
+        if (!savedTurn && user?.uid) {
+          savedTurn = true;
+          saveTextHistory(user.uid, {
+            kind: 'text',
+            original: role === 'foreigner' ? foreignerCompleteRef.current : userCompleteRef.current,
+            translation: role === 'foreigner' ? userCompleteRef.current : foreignerCompleteRef.current,
+            pronunciation: role === 'foreigner' ? userPronunciationCompleteRef.current : foreignerPronunciationCompleteRef.current,
+            sourceLang: role === 'foreigner' ? foreignerLang : 'ko',
+            targetLang: role === 'foreigner' ? 'ko' : foreignerLang,
+          });
+        }
         voiceProcessingRef.current = false; setProcessingRole(null);
       },
       error: code => {
@@ -523,9 +557,15 @@ export default function App() {
     const currentComplete = role === 'foreigner' ? foreignerCompleteRef.current : userCompleteRef.current;
     const opponentComplete = activeTurnContextRef.current;
 
+    const historyRequest = user?.uid ? {
+      ownerId: user.uid, role,
+      content: { kind: 'text' as const, original: textToSend, translation: '', pronunciation: '',
+        sourceLang: role === 'foreigner' ? foreignerLang : 'ko', targetLang: role === 'foreigner' ? 'ko' : foreignerLang },
+    } : null;
     getEnsureWs().then(async ws => {
       const token = await auth.currentUser?.getIdToken();
       if (!token) throw Error('로그인 후 사용해주세요.');
+      if (historyRequest) pendingTextHistory.current.push(historyRequest);
       ws.send(JSON.stringify({ 
         type: 'process_text',
         token,
@@ -537,7 +577,11 @@ export default function App() {
         foreignerLang: foreignerLang,
         ttsEnabled: ttsEnabledRef.current
       }));
-    }).catch(console.error);
+    }).catch(error => {
+      pendingTextHistory.current = pendingTextHistory.current.filter(item => item !== historyRequest);
+      setProcessingRole(null);
+      console.error(error);
+    });
   };
 
   const playTTS = async (text: string) => {
@@ -575,6 +619,7 @@ export default function App() {
 
   return (
     <div ref={appContainerRef} className="flex flex-col h-[100dvh] w-full max-w-md mx-auto relative shadow-2xl overflow-y-auto font-sans bg-white">
+      {historyNotice && <div role="status" className="shrink-0 flex items-center gap-2 bg-amber-50 text-amber-900 text-xs px-3 py-2"><p className="flex-1">{historyNotice}</p><button onClick={() => setHistoryNotice('')} aria-label="기록 안내 닫기"><X size={16} /></button></div>}
       <ForeignerPanel
         foreignLoc={foreignLoc}
         foreignerLang={foreignerLang}
@@ -606,13 +651,18 @@ export default function App() {
 
       {/* Divider */}
       <div className="h-2 w-full bg-[#ffcd4a] z-20 shrink-0 shadow-sm relative flex items-center justify-center">
-        <button 
+        <div className="absolute flex items-center gap-2 z-30">
+        <button
           onClick={() => setShowSmartSearch(true)}
-          className="absolute bg-white text-[#552c24] px-4 py-1.5 rounded-full shadow-md border border-[#ffcd4a] hover:bg-[#ffcd4a]/10 transition-colors z-30 flex items-center gap-1.5"
+          className="bg-white text-[#552c24] px-4 py-1.5 rounded-full shadow-md border border-[#ffcd4a] hover:bg-[#ffcd4a]/10 transition-colors z-30 flex items-center gap-1.5"
         >
           <Compass className="w-4 h-4 text-[#ffcd4a]" />
           <span className="text-[13px] font-bold">현지 검색</span>
         </button>
+        <button onClick={() => { resetAudioQueue(); setShowHistory(true); }} disabled={Boolean(activeMic || processingRole)} className="bg-white text-[#552c24] px-4 py-1.5 rounded-full shadow-md border border-[#ffcd4a] hover:bg-[#ffcd4a]/10 transition-colors flex items-center gap-1.5 disabled:opacity-50">
+          <History className="w-4 h-4 text-[#a86614]" /><span className="text-[13px] font-bold">히스토리</span>
+        </button>
+        </div>
       </div>
 
       <UserPanel
@@ -638,6 +688,8 @@ export default function App() {
         audioLevels={audioLevels}
         onOpenChiikawa={() => setShowChiikawa(true)}
       />
+
+      {showHistory && user?.uid && <TranslationHistoryModal ownerId={user.uid} onClose={() => setShowHistory(false)} />}
 
       {/* Help Modal */}
       {showHelp && <TutorialModal onClose={() => { setShowHelp(false); setIsFirstVisit(false); }} isFirstVisit={isFirstVisit} />}

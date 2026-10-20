@@ -1,4 +1,6 @@
 import { authFetch } from '../authFetch';
+import { useAuth } from '../contexts/AuthContext';
+import { createHistoryThumbnail, historyErrorMessage, imageBlob, imageTranslationContent, saveRenderedTranslation, saveTranslation, type HistoryRecord } from '../lib/translationHistory';
 import React, { useState, useRef, useEffect, useCallback, startTransition } from 'react';
 import { X, Loader2, Download, Copy, Check, Calculator, Map, Search, AlignLeft, Info, Lightbulb, ZoomIn, ZoomOut, Tag, BookOpen } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
@@ -24,9 +26,14 @@ interface ImageTranslateModalProps {
   onClose: () => void;
   targetLang: string;
   file: File | null;
+  savedRecord?: HistoryRecord;
 }
 
-export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: ImageTranslateModalProps) {
+export function ImageTranslateModal({ isOpen, onClose, targetLang, file, savedRecord }: ImageTranslateModalProps) {
+  const { user } = useAuth();
+  const [historyNotice, setHistoryNotice] = useState('');
+  const [historyId, setHistoryId] = useState<string | null>(null);
+  const [cachedImage, setCachedImage] = useState<Blob | undefined>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [renderError, setRenderError] = useState('');
@@ -56,13 +63,19 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
     let url: string | undefined;
     const original = new Image();
     original.src = imageSrc;
-    original.decode().then(() => composeTranslation(imageSrc, blocks, {mode: layoutMode})).then(blob => {
+    original.decode().then(() => cachedImage || composeTranslation(imageSrc, blocks, {mode: layoutMode})).then(async blob => {
       if (cancelled) return;
       url = URL.createObjectURL(blob);
       setRenderedImage({ url, file: new File([blob], `translated_${Date.now()}.png`, { type: 'image/png' }), sourceAspect: original.naturalWidth / original.naturalHeight });
+      if (historyId && user?.uid && !cachedImage) {
+        try {
+          const thumbnail = await createHistoryThumbnail(blob);
+          await saveRenderedTranslation(user.uid, historyId, blob, thumbnail);
+        } catch { if (!cancelled) setHistoryNotice('번역문은 저장했지만 완성 이미지를 저장하지 못했습니다. 기록을 열면 기기에서 다시 표시합니다.'); }
+      }
     }).catch(err => { if (!cancelled) { console.error('Image composition failed:', err); setRenderError('이미지 배치를 완료하지 못했습니다. 번역문은 문자 탭에 보관되어 있습니다.'); } });
     return () => { cancelled = true; if (url) URL.revokeObjectURL(url); };
-  }, [isOpen, loading, imageSrc, blocks, layoutMode]);
+  }, [isOpen, loading, imageSrc, blocks, layoutMode, cachedImage, historyId, user?.uid]);
   const exportRef = useRef<HTMLDivElement>(null);
 
   const handleCopy = async (text: string, index: number | 'all') => {
@@ -116,7 +129,21 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
       return () => clearTimeout(timer);
     }
     
+    if (savedRecord?.content.kind === 'image') {
+      const saved = savedRecord.content;
+      const url = URL.createObjectURL(saved.originalImage);
+      setImageSrc(url); setBlocks(saved.blocks); setLayoutMode(saved.layoutMode);
+      setCategory(saved.category); setExtractedData(saved.extractedData);
+      setCachedImage(saved.translatedImage); setHistoryId(savedRecord.id);
+      setHistoryNotice(''); setError(''); setRenderError('');
+      setSelectedBlock(null); setShowSummaryModal(false); setShowCalcModal(false); setNoteKind(null);
+      setViewMode('image'); setZoom(1); setLoading(false);
+      // Restoring a record exits before the compression and API request path.
+      return () => URL.revokeObjectURL(url);
+    }
+
     if (!file) return;
+    setHistoryId(null); setCachedImage(undefined); setHistoryNotice('');
 
     let isMounted = true;
 
@@ -300,6 +327,15 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
         const data = await response.json();
         if (!isMounted) return;
         
+        if (user?.uid) {
+          try {
+            const content = imageTranslationContent(imageBlob(mimeType, base64), data, targetLang);
+            const id = await saveTranslation(user.uid, content, file.name);
+            if (isMounted) setHistoryId(id);
+          } catch (error) { if (isMounted) setHistoryNotice(historyErrorMessage(error)); }
+        }
+        if (!isMounted) return;
+
         // 3. 상태 동기화 단절 및 보이지 않는 렌더링
         // 박스들을 DOM에 먼저 주입하되, loading 상태는 유지합니다.
         startTransition(() => {
@@ -325,7 +361,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
     return () => {
       isMounted = false;
     };
-  }, [isOpen, file, targetLang]);
+  }, [isOpen, file, targetLang, savedRecord, user?.uid]);
 
   const renderSmartChips = () => {
     if (loading || !extractedData) return null;
@@ -425,10 +461,11 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
             transition={{ type: 'spring', damping: 25, stiffness: 300 }}
             className="relative w-full max-w-[95vw] lg:max-w-6xl h-full max-h-[95vh] bg-gray-50 rounded-3xl shadow-2xl flex flex-col overflow-hidden"
           >
+            {historyNotice && <p role="status" className="bg-amber-50 text-amber-900 text-xs px-4 py-2">{historyNotice}</p>}
             {/* Header */}
             <div className="flex flex-wrap gap-2 items-center justify-between px-4 py-3 border-b border-black/5 bg-white z-20">
               <div className="flex items-center gap-3">
-                <h2 className="text-lg font-bold text-[#552c24] whitespace-nowrap">이미지 번역</h2>
+                <h2 className="text-lg font-bold text-[#552c24] whitespace-nowrap">{savedRecord ? '이미지 번역 기록' : '이미지 번역'}</h2>
                 
                 {!loading && blocks.length > 0 && (
                   <div className="flex bg-gray-100/80 rounded-lg p-0.5 flex-shrink-0">
@@ -474,7 +511,7 @@ export function ImageTranslateModal({ isOpen, onClose, targetLang, file }: Image
                 )}
                 <button 
                   onClick={onClose}
-                  aria-label="이미지 번역 닫기"
+                  aria-label={savedRecord ? '히스토리 목록으로' : '이미지 번역 닫기'}
                   className="w-9 h-9 flex items-center justify-center rounded-full hover:bg-black/5 transition-colors text-[#552c24]"
                 >
                   <X size={20} />

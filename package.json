@@ -11,6 +11,7 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "test:security": "node --experimental-strip-types --test tests/security.test.ts tests/auth-fetch.test.cjs",
+    "test:history": "node --experimental-strip-types --test tests/translationHistory.test.ts",
     "test:rules": "node --test tests/firestore-security.cjs"
   },
   "dependencies": {
@@ -44,6 +45,7 @@
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
     "esbuild": "^0.25.0",
+    "fake-indexeddb": "^6.2.6",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
