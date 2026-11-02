@@ -1,3 +1,13 @@
+# 음성 원문 받아쓰기 모델 전환 (2026-11-02)
+
+- 메인 음성번역과 Realtime 비교의 원문 받아쓰기를 `gpt-4o-transcribe`에서 `gpt-transcribe`로 변경했습니다. 기존 모델은 2027-02-26 종료 예정입니다. 녹음을 정지하고 전체 발화를 commit하는 현재 WebSocket 방식에 맞는 후속 모델입니다.
+- 요청 언어를 `language`에서 `languages: [입력언어]`로 바꾸고, 서버가 확정한 모델과 언어 배열도 검증합니다. 한국어와 8개 외국어의 양방향 설정에 적용합니다.
+- 번역·음성 생성 모델은 `gpt-realtime-2.1`입니다. PCM 24 kHz, 정지 후 한 번의 commit/response.create, 번역 재생, 받아쓰기 실패·대기시간 처리는 유지합니다. 새 받아쓰기 완료 응답의 빈 언어 감지 배열과 시간 기반 사용량 필드는 정상 결과로 처리합니다.
+- 새 비교 보고서의 받아쓰기 모델 표기와 실행 개정 식별자를 갱신했습니다. 기존에 저장한 보고서는 변경하지 않습니다.
+- 자동 검증: 새 언어 설정과 불일치 차단, 받아쓰기 부분/최종 결과 및 번역과의 완료 순서, 모든 언어 방향의 메인 WebSocket 흐름. 모의 제공자를 사용하므로 실제 음성 인식 정확도나 계정의 모델 접근 권한을 검증한 결과는 아닙니다.
+- 배포 전 검사에서 발견한 기존 의존성 취약점을 npm 잠금 파일의 호환 범위 업데이트로 해결했습니다: body-parser 2.4.0, qs 6.17.1, iconv-lite 0.7.3, Vite 6.4.5.
+- 공식 근거: [받아쓰기 안내](https://developers.openai.com/api/docs/guides/transcription), [Realtime 받아쓰기](https://developers.openai.com/api/docs/guides/realtime-transcription), [종료 공지](https://developers.openai.com/api/docs/deprecations).
+
 # 브라우저 번역 히스토리 (2026-10-20)
 
 - 메인 화면의 현지 검색 옆에 히스토리 버튼을 추가했습니다. 글·음성 번역 결과와 단일/여러 장 이미지 번역 결과를 완료 시 저장하고, 최신순으로 표시합니다.

@@ -18,6 +18,7 @@ jobs:
       - run: npm run lint
       - run: npm run test:security
       - run: npm run test:history
+      - run: node --experimental-strip-types --test tests/realtimeComparison.test.ts tests/voiceEngine.test.ts tests/realtimeVoiceClient.test.ts tests/voiceComparison.test.ts
       - run: node --experimental-strip-types --test tests/chessComparison.test.ts tests/chessVisuals.test.ts
       - run: npm run build
         env:
