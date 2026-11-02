@@ -43,7 +43,7 @@ test('Realtime uses both language directions, no VAD, and a generic whole-uttera
       assert.equal(f.session.model, REALTIME_MODEL);
       assert.equal(f.session.audio.input.turn_detection, null);
       assert.equal(f.session.audio.input.noise_reduction, null);
-      assert.deepEqual(f.session.audio.input.transcription, { model: 'gpt-4o-transcribe', language: source });
+      assert.deepEqual(f.session.audio.input.transcription, { model: 'gpt-transcribe', languages: [source] });
       assert.deepEqual(f.session.output_modalities, ['audio']);
       assert.equal(f.session.reasoning.effort, 'low');
       assert.match(f.session.instructions, source === 'ko' ? /Korean into Japanese/ : /Japanese into Korean/);
@@ -51,6 +51,62 @@ test('Realtime uses both language directions, no VAD, and a generic whole-uttera
       assert.doesNotMatch(f.session.instructions, /会計|計算|いなり|2泊|3泊/);
       f.accept(); assert.equal(f.ready.length, 1);
     } finally { f.adapter.cancel(); }
+  }
+});
+
+test('transcription handshake accepts effective plural hints and rejects stale or mismatched settings', () => {
+  for (const source of ['ko', 'ja']) {
+    const valid = fixture(source);
+    try {
+      // The full server configuration may retain an unused legacy field as null.
+      valid.session.audio.input.transcription.language = null;
+      valid.accept(); assert.equal(valid.ready.length, 1); assert.equal(valid.done.length, 0);
+    } finally { valid.adapter.cancel(); }
+    for (const transcription of [
+      { model: 'gpt-4o-transcribe', languages: [source] },
+      { model: 'gpt-transcribe', language: source },
+      { model: 'gpt-transcribe', languages: source },
+      { model: 'gpt-transcribe', languages: [] },
+      { model: 'gpt-transcribe', languages: [source === 'ko' ? 'ja' : 'ko'] },
+      { model: 'gpt-transcribe', languages: [source, 'en'] },
+    ]) {
+      const f = fixture(source);
+      try {
+        f.session.audio.input.transcription = transcription;
+        f.accept();
+        assert.equal(f.ready.length, 0);
+        assert.equal(f.done[0]?.error, 'REALTIME_SESSION_MISMATCH');
+        assert.equal(f.socket.sent.length, 1);
+      } finally { f.adapter.cancel(); }
+    }
+  }
+});
+
+test('GPT Transcribe deltas and final text work before or after translation with optional language metadata', () => {
+  for (const beforeTranslation of [true, false]) {
+    for (const languages of [undefined, [], [{ code: 'ko' }]]) {
+      const f = fixture();
+      try {
+        f.accept(); f.stop(); f.commit(); f.response();
+        f.socket.receive({ type: 'conversation.item.input_audio_transcription.delta', item_id: 'input-1', delta: '두 박' });
+        assert.equal(f.texts.at(-1).input, '두 박');
+        const finishTranscript = () => f.socket.receive({
+          type: 'conversation.item.input_audio_transcription.completed', item_id: 'input-1',
+          transcript: '2박 3일 예약입니다.', languages, usage: { type: 'duration', seconds: 1.25 },
+        });
+        if (beforeTranslation) finishTranscript();
+        f.emit('response.output_audio.delta', { delta: '6APoAw==' });
+        f.emit('response.output_audio_transcript.done', { transcript: '2泊3日の予約です。' });
+        f.complete();
+        if (!beforeTranslation) {
+          assert.equal(f.done.length, 0);
+          finishTranscript();
+        }
+        assert.equal(f.done.length, 1); assert.equal(f.done[0].error, undefined);
+        assert.equal(f.done[0].evidence.transcriptionStatus, 'completed');
+        assert.deepEqual(f.texts.at(-1), { input: '2박 3일 예약입니다.', output: '2泊3日の予約です。' });
+      } finally { f.adapter.cancel(); }
+    }
   }
 });
 

@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import { WebSocket } from 'ws';
 
 export const REALTIME_MODEL = 'gpt-realtime-2.1';
-export const REALTIME_REVISION = 'full-utterance-2026-09-14';
-export const REALTIME_TRANSCRIPTION_MODEL = 'gpt-4o-transcribe';
+export const REALTIME_REVISION = 'full-utterance-transcribe-2026-11-02';
+export const REALTIME_TRANSCRIPTION_MODEL = 'gpt-transcribe';
 
 export function realtimeComparisonSession(source: string) {
   if (source !== 'ko' && source !== 'ja') throw Error('INVALID_LANGUAGE');
@@ -20,7 +20,8 @@ export function realtimeComparisonSession(source: string) {
       'Do not repeat translated content. Do not transcribe the source aloud. If there is no intelligible speech, do not invent a translation. Never use tools.',
     audio: {
       input: { format: { type: 'audio/pcm', rate: 24000 }, turn_detection: null, noise_reduction: null,
-        transcription: { model: REALTIME_TRANSCRIPTION_MODEL, language: source } },
+        // GPT Transcribe starts after input_audio_buffer.commit and uses plural language hints.
+        transcription: { model: REALTIME_TRANSCRIPTION_MODEL, languages: [source] } },
       output: { format: { type: 'audio/pcm', rate: 24000 }, voice: 'marin' },
     },
   };
@@ -114,13 +115,15 @@ export function createRealtimeComparison(options: {
       if (m.type === 'session.updated') {
         const s = m.session;
         const pcm = (format: any) => format?.type === 'audio/pcm' && format.rate === 24000;
+        const transcription = s?.audio?.input?.transcription;
         if (ready || s?.type !== 'realtime' || s.model !== REALTIME_MODEL || s.instructions !== session.instructions ||
           s.audio?.input?.turn_detection !== null || !pcm(s.audio?.input?.format) ||
           (!textOnly && (!pcm(s.audio?.output?.format) || s.audio.output.voice !== 'marin')) ||
           s.reasoning?.effort !== 'low' || s.tool_choice !== 'none' ||
-          (options.session && (s.output_modalities?.[0] !== session.output_modalities[0] ||
-            s.audio.input.transcription?.language !== options.source)) ||
-          s.audio.input.transcription?.model !== REALTIME_TRANSCRIPTION_MODEL) { finish('REALTIME_SESSION_MISMATCH'); return; }
+          (options.session && s.output_modalities?.[0] !== session.output_modalities[0]) ||
+          transcription?.model !== REALTIME_TRANSCRIPTION_MODEL ||
+          !Array.isArray(transcription.languages) || transcription.languages.length !== 1 ||
+          transcription.languages[0] !== options.source) { finish('REALTIME_SESSION_MISMATCH'); return; }
         evidence.serverSession = { model: s.model, inputFormat: s.audio.input.format, outputFormat: s.audio.output?.format,
           turnDetection: null, voice: s.audio.output?.voice, reasoningEffort: s.reasoning.effort, transcriptionModel: s.audio.input.transcription.model };
         ready = true; options.ready(evidence);
