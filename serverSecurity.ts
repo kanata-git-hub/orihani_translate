@@ -78,6 +78,7 @@ export function authenticatedApi(verify = verifyAppUser): RequestHandler {
       res.status(status).json({ error: status === 403 ? '사용 권한이 없습니다.' : status === 401 ? '로그인을 다시 확인해주세요.' : '로그인 확인 서비스에 일시적으로 연결할 수 없습니다.' });
       return;
     } finally { verifying--; }
+    if (res.destroyed || res.writableEnded) return;
     const now = Date.now();
     for (const [uid, bucket] of buckets) if (!bucket.active && now - bucket.start >= 60000) buckets.delete(uid);
     let bucket = buckets.get(user.uid);
