@@ -1,6 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
+import { spawn } from 'node:child_process';
+import { once } from 'node:events';
+import { createInterface } from 'node:readline';
+import WebSocket from 'ws';
+import { verifyVoiceUser, monitorVoiceAccess } from '../voiceAuth.ts';
 import { verifyAppUser, authenticatedApi, ACCESS_POLICY } from '../serverSecurity.ts';
 
 const token = 'synthetic-firebase-token-for-local-tests';
@@ -65,4 +70,69 @@ test('real HTTP middleware blocks unauthenticated calls before body parsing and 
     assert.deepEqual(await response.json(), { input: { prompt: '기존 프롬프트', image: 'unchanged' }, uid: 'user-one' });
     assert.equal(paidCalls, 1);
   } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+});
+
+test('production API and legacy socket reject invalid unauthenticated traffic without interrupting health', { timeout: 25000 }, async () => {
+  const child = spawn(process.execPath, ['--experimental-strip-types', 'server.ts'], {
+    env: { ...process.env, NODE_ENV: 'production', PORT: '0' }, stdio: ['ignore', 'pipe', 'pipe']
+  });
+  const closed = once(child, 'close');
+  child.stderr.resume();
+  const lines = createInterface({ input: child.stdout });
+  try {
+    let port = '';
+    const timer = setTimeout(() => child.kill(), 15000);
+    try {
+      for await (const line of lines) {
+        const match = /^Server running on port (\d+)$/.exec(line);
+        if (match) { port = match[1]; break; }
+      }
+    } finally { clearTimeout(timer); }
+    assert.ok(port, 'server started');
+    const base = 'http://127.0.0.1:' + port;
+    const bad = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{invalid' };
+    for (const route of ['translate-image', 'tts', 'smart-search']) {
+      assert.equal((await fetch(base + '/api/' + route, bad)).status, 401);
+    }
+    assert.equal((await fetch(base + '/api/missing', bad)).status, 404);
+    const ws = new WebSocket('ws://127.0.0.1:' + port + '/live', { origin: base });
+    try {
+      await once(ws, 'open');
+      const end = once(ws, 'close');
+      ws.send(Buffer.alloc(2 * 1024 * 1024 + 1));
+      await end;
+    } finally { ws.terminate(); }
+    assert.equal((await fetch(base + '/api/health')).status, 200);
+  } finally { lines.close(); child.kill(); await closed; }
+});
+
+test('approved API and voice accounts must have signed in at or after the server cutoff', async () => {
+  const session = (auth_time: unknown) => 'header.' + Buffer.from(JSON.stringify({ auth_time, iat: 200 })).toString('base64url') + '.signature';
+  const verify = (validSince: unknown) => (async (url: string | URL | Request) =>
+    String(url).includes('accounts:lookup') ? reply({ users: [{ ...account, validSince }] }) :
+      reply([{ document: { fields: { email: { stringValue: account.email } } } }])) as typeof fetch;
+  for (const check of [verifyAppUser, verifyVoiceUser]) {
+    for (const cutoff of ['101', null, 'bad', '1.5', -1]) {
+      await assert.rejects(check(session(100), verify(cutoff)), /AUTH_REQUIRED/);
+    }
+    await assert.rejects(check(session(undefined), verify('100')), /AUTH_REQUIRED/);
+    await assert.rejects(check(token, verify('100')), /AUTH_REQUIRED/);
+    await check(session(100), verify('100'));
+    await check(session(101), verify('100'));
+  }
+});
+
+test('an already open voice connection fails closed when account revalidation fails', async () => {
+  let calls = 0;
+  let notify!: () => void;
+  const denied = new Promise<void>(resolve => { notify = resolve; });
+  const stop = monitorVoiceAccess(async () => {
+    if (++calls === 1) return 'approved';
+    throw Error('AUTH_REQUIRED');
+  }, 'approved', notify, 3);
+  const timeout = setTimeout(() => notify(), 2000);
+  try {
+    await denied;
+    assert.equal(calls, 2);
+  } finally { clearTimeout(timeout); stop(); }
 });

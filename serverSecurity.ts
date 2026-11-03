@@ -7,6 +7,20 @@ export const ACCESS_POLICY = 'approved' as string;
 const OWNER = 'kanata840@gmail.com';
 export type AppUser = { uid: string; email: string };
 
+// accounts:lookup verifies the signed token first. Compare the original login time,
+// not the issue time of a newer token refreshed from an already revoked session.
+export function checkSessionCutoff(token: string, validSince: unknown) {
+  if (validSince === undefined) return;
+  const cutoff = typeof validSince === 'string' && /^\d+$/.test(validSince) ? Number(validSince) : validSince;
+  if (typeof cutoff !== 'number' || !Number.isSafeInteger(cutoff) || cutoff < 0) throw Error('AUTH_REQUIRED');
+  const parts = token.split('.');
+  if (parts.length !== 3 || !parts.every(part => /^[A-Za-z0-9_-]+$/.test(part))) throw Error('AUTH_REQUIRED');
+  let authTime: unknown;
+  try { authTime = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8')).auth_time; }
+  catch { throw Error('AUTH_REQUIRED'); }
+  if (typeof authTime !== 'number' || !Number.isSafeInteger(authTime) || authTime < cutoff) throw Error('AUTH_REQUIRED');
+}
+
 export async function verifyAppUser(token: unknown, request: typeof fetch = fetch): Promise<AppUser> {
   if (typeof token !== 'string' || token.length < 20 || token.length > 8192) throw Error('AUTH_REQUIRED');
   const lookup = await request(`https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=${WEB_KEY}`, {
@@ -16,6 +30,7 @@ export async function verifyAppUser(token: unknown, request: typeof fetch = fetc
   if (!lookup.ok) throw Error(lookup.status >= 500 || lookup.status === 429 ? 'AUTH_UNAVAILABLE' : 'AUTH_REQUIRED');
   const account = (await lookup.json()).users?.[0];
   if (typeof account?.localId !== 'string' || typeof account.email !== 'string' || account.disabled || account.emailVerified !== true) throw Error('AUTH_REQUIRED');
+  checkSessionCutoff(token, account.validSince);
   const user = { uid: account.localId, email: account.email };
   if (account.email === OWNER || ACCESS_POLICY === 'signed-in') return user;
   const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
@@ -63,6 +78,7 @@ export function authenticatedApi(verify = verifyAppUser): RequestHandler {
       res.status(status).json({ error: status === 403 ? '사용 권한이 없습니다.' : status === 401 ? '로그인을 다시 확인해주세요.' : '로그인 확인 서비스에 일시적으로 연결할 수 없습니다.' });
       return;
     } finally { verifying--; }
+    if (res.destroyed || res.writableEnded) return;
     const now = Date.now();
     for (const [uid, bucket] of buckets) if (!bucket.active && now - bucket.start >= 60000) buckets.delete(uid);
     let bucket = buckets.get(user.uid);

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User, onAuthStateChanged, signOut } from 'firebase/auth';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocsFromServer } from 'firebase/firestore';
 import { auth, db } from '../lib/firebaseUtils';
 
 interface AuthContextType {
@@ -26,12 +26,18 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isApproved, setIsApproved] = useState(false);
 
   useEffect(() => {
+    let change = 0;
     const unsubscribe = onAuthStateChanged(auth, async (currentUser) => {
+      const version = ++change;
+      setLoading(true);
+      setIsApproved(false);
+      setIsAdmin(false);
       setUser(currentUser);
-      if (currentUser && currentUser.email) {
+      if (currentUser?.emailVerified && currentUser.email) {
         try {
           const q = query(collection(db, 'approved_users'), where('email', '==', currentUser.email));
-          const snapshot = await getDocs(q);
+          const snapshot = await getDocsFromServer(q);
+          if (version !== change) return;
           if (!snapshot.empty) {
             const role = snapshot.docs[0].data().role;
             setIsApproved(true);
@@ -40,8 +46,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             setIsApproved(currentUser.email === 'kanata840@gmail.com');
             setIsAdmin(currentUser.email === 'kanata840@gmail.com');
           }
-        } catch (e) {
-          console.error("Error checking approval status", e);
+        } catch {
+          if (version !== change) return;
           setIsApproved(currentUser.email === 'kanata840@gmail.com');
           setIsAdmin(currentUser.email === 'kanata840@gmail.com');
         }
@@ -52,7 +58,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => { change++; unsubscribe(); };
   }, []);
 
   return (

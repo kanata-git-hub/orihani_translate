@@ -1,5 +1,5 @@
 import { registerChessComparison } from './chessComparison.ts';
-import { verifyVoiceUser } from './voiceAuth.ts';
+import { monitorVoiceAccess, verifyVoiceUser } from './voiceAuth.ts';
 import { requireUser } from './serverSecurity.ts';
 import { processGeminiAudio } from './geminiVoice.ts';
 import { createVoiceServer, pronunciationRequest } from './voiceEngine.ts';
@@ -32,29 +32,36 @@ function getAi(): GoogleGenAI {
   return aiClient;
 }
 
-// Exponential backoff helper
-async function fetchWithBackoff(fn: () => Promise<any>, retries = 3, delayMs = 1000, timeoutMs = 45000) {
+// Cancel the actual SDK request before retrying. A disconnected client must not keep
+// paid work running while its admission slot is available for another request.
+async function fetchWithBackoff(fn: (signal: AbortSignal) => Promise<any>, signal: AbortSignal, retries = 3, delayMs = 1000, timeoutMs = 45000) {
   for (let i = 0; i < retries; i++) {
+    signal.throwIfAborted();
+    const deadline = new AbortController();
+    const timer = setTimeout(() => deadline.abort(), timeoutMs);
     try {
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error("API Timeout")), timeoutMs);
-      });
-      return await Promise.race([fn(), timeoutPromise]);
+      return await fn(AbortSignal.any([signal, deadline.signal]));
     } catch (e: any) {
-      const isRateLimitOrOverload = e?.status === 429 || e?.status === 503 || e?.message?.includes("429") || e?.message?.includes("503") || e?.message?.includes("Timeout");
-      if (i === retries - 1 || !isRateLimitOrOverload) throw e;
-      console.warn(`API Error [${e.status || e.message}], retrying in ${delayMs}ms (attempt ${i + 1}/${retries})...`);
-      await new Promise(resolve => setTimeout(resolve, delayMs));
-      delayMs *= 2;
-    }
+      signal.throwIfAborted();
+      const retryable = deadline.signal.aborted || [429, 503].includes(e?.status) || /429|503|Timeout/.test(e?.message || '');
+      if (i === retries - 1 || !retryable) throw e;
+    } finally { clearTimeout(timer); }
+    await new Promise(resolve => setTimeout(resolve, delayMs));
+    delayMs *= 2;
   }
-} // <--- Added exponential backoff
+}
+
+function requestSignal(res: express.Response): AbortSignal {
+  const controller = new AbortController();
+  res.once('close', () => controller.abort());
+  return controller.signal;
+}
 
 async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   const server = http.createServer(app);
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 50 * 1024 * 1024, perMessageDeflate: false });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024, perMessageDeflate: false });
   registerVoiceComparison(server, wss, {
     productionVoice: createVoiceServer({ guide: async (turn, translation, signal) => {
       const response = await getAi().models.generateContent(pronunciationRequest(turn, translation, signal));
@@ -70,11 +77,15 @@ async function startServer() {
   const sessions = new Map<WebSocket, any>();
 
   wss.on("connection", (clientWs, req) => {
-    if (wss.clients.size > 256) { clientWs.close(1013, 'BUSY'); return; }
+    // Invalid frames are connection errors; never let one terminate the server process.
+    clientWs.on('error', () => clientWs.terminate());
+    const lifetime = new AbortController();
     let pending = 0;
+    let socketUid: string | undefined, latestToken = '';
+    let stopAccessChecks: (() => void) | undefined;
     let windowStart = Date.now(), messageCount = 0;
     const idle = setTimeout(() => clientWs.close(1008, 'AUTH_REQUIRED'), 15000);
-    clientWs.on('close', () => clearTimeout(idle));
+    clientWs.on('close', () => { lifetime.abort(); clearTimeout(idle); stopAccessChecks?.(); });
     let session: any = null;
 
     let isClosing = false;
@@ -83,19 +94,26 @@ async function startServer() {
       let msg: any;
       try {
         msg = JSON.parse(data.toString());
-      } catch(e) {
-        return;
+      } catch {
+        clientWs.close(1007, 'INVALID_MESSAGE'); return;
       }
 
-      if (!msg || !['process_audio', 'process_text'].includes(msg.type)) return;
+      if (!msg || !['process_audio', 'process_text'].includes(msg.type)) { clientWs.close(1008, 'INVALID_MESSAGE'); return; }
       if (Date.now() - windowStart >= 60000) { windowStart = Date.now(); messageCount = 0; }
       if (pending >= 8 || ++messageCount > 120) { clientWs.close(1008, 'TOO_MANY_REQUESTS'); return; }
       pending++;
-      try { await verifyVoiceUser(msg.token); }
+      let uid: string;
+      try { uid = await verifyVoiceUser(msg.token); }
       catch { pending--; clientWs.close(1008, 'AUTH_REQUIRED'); return; }
+      if (clientWs.readyState !== WebSocket.OPEN) { pending--; return; }
+      if (socketUid && uid !== socketUid) { pending--; clientWs.close(1008, 'AUTH_REQUIRED'); return; }
+      latestToken = msg.token;
+      if (!stopAccessChecks) {
+        socketUid = uid;
+        stopAccessChecks = monitorVoiceAccess(() => verifyVoiceUser(latestToken), uid, () => { lifetime.abort(); clientWs.close(1008, 'AUTH_REQUIRED'); });
+      }
       delete msg.token;
       clearTimeout(idle);
-      if (clientWs.readyState !== WebSocket.OPEN) { pending--; return; }
       const state = sessions.get(clientWs) || { processPromise: Promise.resolve() };
       sessions.set(clientWs, state);
 
@@ -107,10 +125,10 @@ async function startServer() {
           }
           
           await processGeminiAudio(msg, {
-            generate: request => fetchWithBackoff(() => getAi().models.generateContentStream(request)),
+            generate: request => fetchWithBackoff(signal => getAi().models.generateContentStream({ ...request, config: { ...request.config, abortSignal: signal } }), lifetime.signal),
             send: event => { if (clientWs.readyState === WebSocket.OPEN) clientWs.send(JSON.stringify(event)); },
-          });
-        }).catch(e => console.error("Process Audio Promise Error", e)).finally(() => { pending--; });
+          }, { signal: lifetime.signal });
+        }).catch(e => console.error("Process Audio Promise Error")).finally(() => { pending--; });
       } else if (msg.type === "process_text") {
         state.processPromise = state.processPromise.then(async () => {
           if (clientWs.readyState !== WebSocket.OPEN) return;
@@ -192,9 +210,10 @@ Pronunciation Guide Rules:
                systemPrompt += `\n----------------------------\nEnsure the translation flows naturally as a realistic dialogue response based on this context.`;
             }
 
-            responseStream = await fetchWithBackoff(() => ai.models.generateContentStream({
+            responseStream = await fetchWithBackoff(signal => ai.models.generateContentStream({
               model: "gemini-3.6-flash",
               config: {
+                abortSignal: signal,
                 systemInstruction: systemPrompt,
                 responseMimeType: "application/json"
               },
@@ -204,7 +223,7 @@ Pronunciation Guide Rules:
                   parts: [{ text: msg.text }]
                 }
               ]
-            }));
+            }), lifetime.signal);
 
           let bufferStr = "";
           let finalTranscription = msg.text;
@@ -218,10 +237,11 @@ Pronunciation Guide Rules:
             if (!ttsEnabled) return;
             ttsPromise = ttsPromise.then(async () => {
               try {
-                const ttsStream = await fetchWithBackoff(() => ai.models.generateContentStream({
+                const ttsStream = await fetchWithBackoff(signal => ai.models.generateContentStream({
                   model: "gemini-3.8-flash-tts",
                   contents: [{ parts: [{ text: textToSpeak }] }],
                   config: {
+                    abortSignal: signal,
                     responseModalities: ["AUDIO"],
                     speechConfig: {
                       voiceConfig: {
@@ -229,7 +249,7 @@ Pronunciation Guide Rules:
                       },
                     },
                   },
-                }));
+                }), lifetime.signal);
                 for await (const chunk of ttsStream) {
                   const base64Audio = chunk.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
                   if (base64Audio) {
@@ -237,7 +257,7 @@ Pronunciation Guide Rules:
                   }
                 }
               } catch (e: any) {
-                console.error("TTS Gen Error:", e);
+                console.error("TTS Gen Error:");
               }
             });
           };
@@ -309,6 +329,7 @@ Pronunciation Guide Rules:
                  const fixPrompt = `다음 한국어 문장은 음성 인식된 결과입니다. 문맥을 고려하여 명백한 오타나 인식 오류를 자연스럽게 수정해주세요.\n조건:\n- 어떠한 부가 설명이나 인사말 없이 오직 수정된 텍스트만 출력하세요.\n- 수정할 부분이 없으면 원래 텍스트를 그대로 출력하세요.\n\n텍스트: ${finalTranscription}`;
                  const res = await ai.models.generateContent({
                    model: "gemini-3.6-flash",
+                   config: { abortSignal: lifetime.signal },
                    contents: [{ role: "user", parts: [{ text: fixPrompt }] }]
                  });
                  const corrected = res.text?.trim();
@@ -316,17 +337,17 @@ Pronunciation Guide Rules:
                    clientWs.send(JSON.stringify({ role, originalTranscription: finalTranscription, correctedTranscription: corrected }));
                  }
                } catch (e) {
-                 console.error("Typo correction error:", e);
+                 console.error("Typo correction error:");
                }
              };
              fixTyposAsync();
           }
 
         } catch (e: any) {
-          console.error("Pipeline Error:", e);
-          clientWs.send(JSON.stringify({ error: e.message, role, turnComplete: true }));
+          console.error("Pipeline Error:");
+          clientWs.send(JSON.stringify({ error: "TRANSLATION_FAILED", role, turnComplete: true }));
         }
-      }).catch(e => console.error("Process Promise Error", e)).finally(() => { pending--; });
+      }).catch(e => console.error("Process Promise Error")).finally(() => { pending--; });
     }
     });
 
@@ -338,16 +359,18 @@ Pronunciation Guide Rules:
   registerChessComparison(app);
   registerChiikawa(app);
   app.use(cors());
-  app.use(['/api/translate-image', '/api/tts', '/api/smart-search'], requireUser);
-  app.use(express.json({ limit: "50mb" }));
+  // Only registered paid handlers accept JSON, after authentication. Leave unrelated requests unparsed.
+  const imageJson = express.json({ limit: '50mb' });
+  const textJson = express.json({ limit: '256kb' });
 
   // API Health route
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
   });
 
-  app.post("/api/translate-image", async (req, res) => {
+  app.post("/api/translate-image", requireUser, imageJson, async (req, res) => {
     try {
+      const lifetime = requestSignal(res);
       const { imageParams, targetLang } = req.body; 
       const ai = getAi();
       
@@ -412,7 +435,7 @@ Return a strict JSON object with this exact structure:
   }
 }`;
 
-      const response = await fetchWithBackoff(() => ai.models.generateContent({
+      const response = await fetchWithBackoff(signal => ai.models.generateContent({
         model: "gemini-3.6-flash",
         contents: [{
           role: "user",
@@ -424,6 +447,7 @@ Return a strict JSON object with this exact structure:
           ]
         }],
         config: {
+          abortSignal: signal,
           responseMimeType: "application/json",
           responseSchema: {
             type: Type.OBJECT,
@@ -484,7 +508,7 @@ Return a strict JSON object with this exact structure:
           },
           maxOutputTokens: 16384
         }
-      }));
+      }), lifetime);
 
       if (response?.text) {
           let text = response.text.trim();
@@ -500,25 +524,27 @@ Return a strict JSON object with this exact structure:
             const parsed = JSON.parse(text);
             return res.json(parsed);
           } catch (parseError) {
-            console.error("JSON Parse Error. Raw response was:", text);
+            console.warn("Invalid image translation response");
             throw parseError;
           }
       }
       res.status(500).json({ error: "Failed to process image" });
     } catch(e: any) {
-        console.error("Image Translate Error", e);
-        res.status(500).json({ error: e?.message || "Unknown error" });
+        console.error("Image Translate Error");
+        res.status(502).json({ error: "번역 서비스에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요." });
     }
   });
 
-  app.post("/api/tts", async (req, res) => {
+  app.post("/api/tts", requireUser, textJson, async (req, res) => {
     try {
+      const lifetime = requestSignal(res);
       const { text } = req.body;
       const ai = getAi();
-      const response = await fetchWithBackoff(() => ai.models.generateContentStream({
+      const response = await fetchWithBackoff(signal => ai.models.generateContentStream({
         model: 'gemini-3.8-flash-tts',
         contents: [{ parts: [{ text }] }],
         config: {
+          abortSignal: signal,
           responseModalities: ['AUDIO'],
           speechConfig: {
             voiceConfig: {
@@ -526,7 +552,7 @@ Return a strict JSON object with this exact structure:
             },
           },
         },
-      }));
+      }), lifetime);
       // Streaming TTS keeps the existing 24 kHz raw PCM response contract.
       const audioChunks: Buffer[] = [];
       for await (const chunk of response) {
@@ -540,13 +566,14 @@ Return a strict JSON object with this exact structure:
       }
       res.status(500).json({ error: "No audio generated" });
     } catch (e: any) {
-      console.error("TTS Error:", e);
-      res.status(500).json({ error: e.message });
+      console.error("TTS Error:");
+      res.status(502).json({ error: "음성을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요." });
     }
   });
 
-  app.post("/api/smart-search", async (req, res) => {
+  app.post("/api/smart-search", requireUser, textJson, async (req, res) => {
     try {
+      const lifetime = requestSignal(res);
       const { category, targetLanguage } = req.body;
       const ai = getAi();
       
@@ -567,13 +594,14 @@ Return a strict JSON object with this exact structure:
   "explanation": "A very short, 1-line explanation in Korean (e.g., '현지인들이 퇴근 후 들르는 가성비 술집입니다.')"
 }`;
 
-      const response = await fetchWithBackoff(() => ai.models.generateContent({
+      const response = await fetchWithBackoff(signal => ai.models.generateContent({
         model: "gemini-3.6-flash",
         contents: [{ role: "user", parts: [{ text: systemPrompt }] }],
         config: {
+          abortSignal: signal,
           responseMimeType: "application/json"
         }
-      }));
+      }), lifetime);
 
       if (response?.text) {
           const parsed = JSON.parse(response.text);
@@ -581,10 +609,18 @@ Return a strict JSON object with this exact structure:
       }
       res.status(500).json({ error: "Failed to generate search keyword" });
     } catch(e: any) {
-        console.error("Smart Search Error", e);
-        res.status(500).json({ error: e?.message || "Unknown error" });
+        console.error("Smart Search Error");
+        res.status(502).json({ error: "번역 서비스에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요." });
     }
   });
+
+  const apiError: express.ErrorRequestHandler = (err, _req, res, next) => {
+    if (res.headersSent) { next(err); return; }
+    const status = Number.isInteger(err?.status) && err.status >= 400 && err.status < 500 ? err.status : 500;
+    res.status(status).json({ error: status === 413 ? '요청이 너무 큽니다.' : '요청을 처리할 수 없습니다.' });
+  };
+  app.use('/api', apiError);
+  app.use('/api', (_req, res) => { res.sendStatus(404); });
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
@@ -603,7 +639,8 @@ Return a strict JSON object with this exact structure:
   }
 
   server.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
+    const address = server.address();
+    console.log(`Server running on port ${typeof address === "object" ? address?.port : PORT}`);
   });
 }
 

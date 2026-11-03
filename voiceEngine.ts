@@ -1,6 +1,6 @@
 import { WebSocket, WebSocketServer } from 'ws';
 import { createRealtimeComparison, realtimeComparisonSession } from './realtimeComparison.ts';
-import { verifyVoiceUser } from './voiceAuth.ts';
+import { monitorVoiceAccess, verifyVoiceUser } from './voiceAuth.ts';
 
 export const VOICE_MAX_SECONDS = 300;
 export const VOICE_MAX_INPUT_BYTES = VOICE_MAX_SECONDS * 24000 * 2;
@@ -64,6 +64,7 @@ export function createVoiceServer(deps: Dependencies = {}) {
   const users = new Set<string>();
   wss.on('connection', client => {
     let state = 'auth', closed = false, uid: string | undefined;
+    let stopAccessChecks: (() => void) | undefined;
     let adapter: ReturnType<typeof createRealtimeComparison> | undefined;
     let turn: VoiceTurn, input = '', output = '';
     const guideAbort = new AbortController();
@@ -71,7 +72,7 @@ export function createVoiceServer(deps: Dependencies = {}) {
     const release = () => { if (uid) { users.delete(uid); uid = undefined; } };
     function cleanup() {
       if (closed) return;
-      closed = true; clearTimeout(deadline); adapter?.cancel(); guideAbort.abort(); release();
+      closed = true; stopAccessChecks?.(); clearTimeout(deadline); adapter?.cancel(); guideAbort.abort(); release();
     }
     function send(event: object) {
       if (closed || client.readyState !== WebSocket.OPEN) return;
@@ -114,6 +115,8 @@ export function createVoiceServer(deps: Dependencies = {}) {
           if (users.has(verified)) { fail('ALREADY_RUNNING'); return; }
           const key = (deps.key ?? (() => process.env.OPENAI_API_KEY))();
           if (!key) { fail('OPENAI_NOT_CONFIGURED'); return; }
+          const token = event.token;
+          stopAccessChecks = monitorVoiceAccess(() => (deps.verify ?? verifyVoiceUser)(token), verified, () => fail('AUTH_REQUIRED'));
           uid = verified; users.add(uid); state = 'starting'; clearTimeout(deadline);
           deadline = setTimeout(() => fail('CONNECTION_TIMEOUT'), 20000);
           adapter = createRealtimeComparison({ source: voiceLanguages(turn).source, key,
