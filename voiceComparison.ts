@@ -1,5 +1,7 @@
 // Owner-only, bounded experiment. Legacy text uses /live; production voice uses /voice.
 import type { Server } from 'node:http';
+import { checkSessionCutoff } from './serverSecurity.ts';
+import { monitorVoiceAccess } from './voiceAuth.ts';
 import { createHash } from 'node:crypto';
 import { WebSocket, WebSocketServer } from 'ws';
 import { buildGeminiVoicePrompt, GEMINI_VOICE_REVISION, GEMINI_THINKING_REVISION } from './geminiVoice.ts';
@@ -23,6 +25,7 @@ export async function verifyComparisonOwner(token: unknown, request = fetch): Pr
   if (!account?.localId || account.disabled || account.emailVerified !== true || account.email !== 'kanata840@gmail.com') {
     throw new Error('OWNER_ONLY');
   }
+  checkSessionCutoff(token, account.validSince);
   return account.localId;
 }
 
@@ -110,6 +113,7 @@ export function registerVoiceComparison(server: Server, legacy: WebSocketServer,
       role: source === 'ja' ? 'foreigner' : 'user', foreignerLang: 'ja',
       targetLanguageCode: source === 'ja' ? 'ko' : 'ja', ttsEnabled: true });
     let state = 'auth', uid: string | undefined, closed = false;
+    let stopAccessChecks: (() => void) | undefined;
     let live: WebSocket | undefined, gemini: WebSocket | undefined;
     let realtime: ReturnType<typeof createRealtimeComparison> | undefined, realtimeEvidence: Record<string, any> | undefined;
     let geminiLive: ReturnType<typeof createGeminiLiveComparison> | undefined, geminiLiveEvidence: Record<string, any> | undefined;
@@ -129,7 +133,7 @@ export function registerVoiceComparison(server: Server, legacy: WebSocketServer,
     };
     function cleanup() {
       if (closed) return;
-      closed = true; clearTimeout(deadline); clearTimeout(liveDeadline); clearInterval(silence);
+      closed = true; stopAccessChecks?.(); clearTimeout(deadline); clearTimeout(liveDeadline); clearInterval(silence);
       for (const controller of controllers.values()) controller.abort();
       realtime?.cancel();
       geminiLive?.cancel();
@@ -206,6 +210,8 @@ export function registerVoiceComparison(server: Server, legacy: WebSocketServer,
           if (owners.has(owner)) { fail('ALREADY_RUNNING'); return; }
           if (event.mode !== undefined && !['live', 'realtime', 'gemini_live', 'gemini_order', 'gemini_thinking'].includes(event.mode)) throw new Error();
           if (event.source !== 'ko' && event.source !== 'ja') throw new Error();
+          const token = event.token;
+          stopAccessChecks = monitorVoiceAccess(() => verify(token), owner, () => fail('AUTH_REQUIRED'));
           mode = event.mode ?? 'live'; source = event.source;
           if (mode === 'gemini_order' || mode === 'gemini_thinking') {
             if (!deps.runGemini) { fail('GEMINI_TEST_NOT_CONFIGURED'); return; }

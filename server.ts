@@ -1,5 +1,5 @@
 import { registerChessComparison } from './chessComparison.ts';
-import { verifyVoiceUser } from './voiceAuth.ts';
+import { monitorVoiceAccess, verifyVoiceUser } from './voiceAuth.ts';
 import { requireUser } from './serverSecurity.ts';
 import { processGeminiAudio } from './geminiVoice.ts';
 import { createVoiceServer, pronunciationRequest } from './voiceEngine.ts';
@@ -73,9 +73,11 @@ async function startServer() {
     // Invalid frames are connection errors; never let one terminate the server process.
     clientWs.on('error', () => clientWs.terminate());
     let pending = 0;
+    let socketUid: string | undefined, latestToken = '';
+    let stopAccessChecks: (() => void) | undefined;
     let windowStart = Date.now(), messageCount = 0;
     const idle = setTimeout(() => clientWs.close(1008, 'AUTH_REQUIRED'), 15000);
-    clientWs.on('close', () => clearTimeout(idle));
+    clientWs.on('close', () => { clearTimeout(idle); stopAccessChecks?.(); });
     let session: any = null;
 
     let isClosing = false;
@@ -92,11 +94,18 @@ async function startServer() {
       if (Date.now() - windowStart >= 60000) { windowStart = Date.now(); messageCount = 0; }
       if (pending >= 8 || ++messageCount > 120) { clientWs.close(1008, 'TOO_MANY_REQUESTS'); return; }
       pending++;
-      try { await verifyVoiceUser(msg.token); }
+      let uid: string;
+      try { uid = await verifyVoiceUser(msg.token); }
       catch { pending--; clientWs.close(1008, 'AUTH_REQUIRED'); return; }
+      if (clientWs.readyState !== WebSocket.OPEN) { pending--; return; }
+      if (socketUid && uid !== socketUid) { pending--; clientWs.close(1008, 'AUTH_REQUIRED'); return; }
+      latestToken = msg.token;
+      if (!stopAccessChecks) {
+        socketUid = uid;
+        stopAccessChecks = monitorVoiceAccess(() => verifyVoiceUser(latestToken), uid, () => clientWs.close(1008, 'AUTH_REQUIRED'));
+      }
       delete msg.token;
       clearTimeout(idle);
-      if (clientWs.readyState !== WebSocket.OPEN) { pending--; return; }
       const state = sessions.get(clientWs) || { processPromise: Promise.resolve() };
       sessions.set(clientWs, state);
 

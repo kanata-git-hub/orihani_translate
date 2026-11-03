@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { once } from 'node:events';
 import { createInterface } from 'node:readline';
 import WebSocket from 'ws';
+import { verifyVoiceUser, monitorVoiceAccess } from '../voiceAuth.ts';
 import { verifyAppUser, authenticatedApi, ACCESS_POLICY } from '../serverSecurity.ts';
 
 const token = 'synthetic-firebase-token-for-local-tests';
@@ -103,4 +104,35 @@ test('production API and legacy socket reject invalid unauthenticated traffic wi
     } finally { ws.terminate(); }
     assert.equal((await fetch(base + '/api/health')).status, 200);
   } finally { lines.close(); child.kill(); await closed; }
+});
+
+test('approved API and voice accounts must have signed in at or after the server cutoff', async () => {
+  const session = (auth_time: unknown) => 'header.' + Buffer.from(JSON.stringify({ auth_time, iat: 200 })).toString('base64url') + '.signature';
+  const verify = (validSince: unknown) => (async (url: string | URL | Request) =>
+    String(url).includes('accounts:lookup') ? reply({ users: [{ ...account, validSince }] }) :
+      reply([{ document: { fields: { email: { stringValue: account.email } } } }])) as typeof fetch;
+  for (const check of [verifyAppUser, verifyVoiceUser]) {
+    for (const cutoff of ['101', null, 'bad', '1.5', -1]) {
+      await assert.rejects(check(session(100), verify(cutoff)), /AUTH_REQUIRED/);
+    }
+    await assert.rejects(check(session(undefined), verify('100')), /AUTH_REQUIRED/);
+    await assert.rejects(check(token, verify('100')), /AUTH_REQUIRED/);
+    await check(session(100), verify('100'));
+    await check(session(101), verify('100'));
+  }
+});
+
+test('an already open voice connection fails closed when account revalidation fails', async () => {
+  let calls = 0;
+  let notify!: () => void;
+  const denied = new Promise<void>(resolve => { notify = resolve; });
+  const stop = monitorVoiceAccess(async () => {
+    if (++calls === 1) return 'approved';
+    throw Error('AUTH_REQUIRED');
+  }, 'approved', notify, 3);
+  const timeout = setTimeout(() => notify(), 2000);
+  try {
+    await denied;
+    assert.equal(calls, 2);
+  } finally { clearTimeout(timeout); stop(); }
 });

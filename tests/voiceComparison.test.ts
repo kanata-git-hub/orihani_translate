@@ -133,6 +133,11 @@ test('Firebase validates the token server-side; verified owner only, no account 
   const owner = { localId: 'owner', email: 'kanata840@gmail.com', emailVerified: true };
   assert.equal(await verifyComparisonOwner(token, request(owner)), 'owner');
   assert.deepEqual(JSON.parse(body), { idToken: token });
+  const timed = (auth_time: number) => 'header.' + Buffer.from(JSON.stringify({ auth_time, iat: 200 })).toString('base64url') + '.signature';
+  const cutoff = { ...owner, validSince: '100' };
+  await assert.rejects(verifyComparisonOwner(timed(99), request(cutoff)), /AUTH_REQUIRED/);
+  await assert.rejects(verifyComparisonOwner(timed(101), request({ ...owner, validSince: null })), /AUTH_REQUIRED/);
+  assert.equal(await verifyComparisonOwner(timed(100), request(cutoff)), 'owner');
   for (const user of [{ ...owner, emailVerified: false }, { ...owner, disabled: true }, { ...owner, email: 'someone@example.com' }]) {
     await assert.rejects(verifyComparisonOwner(token, request(user)), /OWNER_ONLY/);
   }
