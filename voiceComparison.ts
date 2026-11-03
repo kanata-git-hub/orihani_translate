@@ -86,6 +86,7 @@ export function registerVoiceComparison(server: Server, legacy: WebSocketServer,
       try {
         if (request.url !== pathname || new URL(request.headers.origin!).host !== request.headers.host) throw Error();
       } catch { socket.destroy(); return; }
+      if (legacy.clients.size >= 24) { socket.destroy(); return; }
       legacy.handleUpgrade(request, socket, head, ws => legacy.emit('connection', ws, request));
     } else if (pathname === '/voice-compare' || (pathname === '/voice' && deps.productionVoice)) {
       // Browser-only endpoint: no query-string tokens, no cross-origin use.
@@ -93,6 +94,7 @@ export function registerVoiceComparison(server: Server, legacy: WebSocketServer,
         if (request.url !== pathname || new URL(request.headers.origin!).host !== request.headers.host) throw new Error();
       } catch { socket.destroy(); return; }
       const target = pathname === '/voice' ? deps.productionVoice! : comparison;
+      if (target.clients.size >= 64) { socket.destroy(); return; }
       target.handleUpgrade(request, socket, head, ws => target.emit('connection', ws, request));
     } else socket.destroy();
   });

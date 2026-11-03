@@ -308,7 +308,7 @@ export async function processGeminiAudio(msg: Message, deps: Dependencies, optio
 
   } catch (e: any) {
     timing.failed = true;
-    send({ error: e.message, role, turnComplete: true });
+    send({ error: "TRANSLATION_FAILED", role, turnComplete: true });
   }
   return timing;
 }

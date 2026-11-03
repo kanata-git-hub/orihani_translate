@@ -1,24 +1,35 @@
-import type { Express } from 'express';
+import type { Express, Request as HttpRequest, Response as HttpResponse } from 'express';
 
 interface Photo { id: string; imageUrl: string; postUrl: string; alt: string; createdAt: string }
 const account = 'ngnchiikawa';
 const ttl = 15 * 60 * 1000;
 export function registerChiikawa(app: Express) {
-  registerPublicChiikawa(app);
+  // Both image routes buffer upstream media. Hold each slot until the handler finishes,
+  // even if the requesting browser disconnects before the upstream response arrives.
+  let downloading = 0;
+  const boundedImage = (handler: (req: HttpRequest, res: HttpResponse) => Promise<void>) =>
+    async (req: HttpRequest, res: HttpResponse) => {
+      if (downloading >= 4) { res.set('Retry-After', '2').sendStatus(429); return; }
+      downloading++;
+      try { await handler(req, res); } finally { downloading--; }
+    };
+  registerPublicChiikawa(app, boundedImage);
   let cache: { photos: Photo[]; expires: number } | undefined;
   let pending: Promise<Photo[]> | undefined;
   let userId: string | undefined;
+  let retryAfter = 0;
   const api = async (path: string) => {
     const response = await fetch(`https://api.x.com/2/${path}`, {
       headers: { Authorization: `Bearer ${process.env.X_BEARER_TOKEN}` },
-      signal: AbortSignal.timeout(15000),
+      signal: AbortSignal.timeout(15000), redirect: 'error',
     });
     if (!response.ok) throw new Error(`X API ${response.status}`);
-    return response.json();
+    return JSON.parse((await readLimited(response, 2 * 1024 * 1024)).toString('utf8'));
   };
   const load = async () => {
     if (cache && cache.expires > Date.now()) return cache.photos;
     if (pending) return pending;
+    if (Date.now() < retryAfter) throw new Error('Feed temporarily unavailable');
     pending = (async () => {
       if (!userId) userId = (await api(`users/by/username/${account}`)).data?.id;
       if (!userId || !/^\d+$/.test(userId)) throw new Error('Account unavailable');
@@ -45,7 +56,7 @@ export function registerChiikawa(app: Express) {
       photos.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
       cache = { photos: photos.slice(0, 9), expires: Date.now() + ttl };
       return cache.photos;
-    })().finally(() => { pending = undefined; });
+    })().catch(error => { retryAfter = Date.now() + 30000; throw error; }).finally(() => { pending = undefined; });
     return pending;
   };
   app.get('/api/chiikawa/photos', async (_req, res) => {
@@ -54,7 +65,7 @@ export function registerChiikawa(app: Express) {
     catch { res.status(502).json({ error: '최신 사진을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.' }); }
   });
   // Only IDs in the server's official-account feed can be fetched, never arbitrary URLs.
-  app.get('/api/chiikawa/image/:id', async (req, res) => {
+  app.get('/api/chiikawa/image/:id', boundedImage(async (req, res) => {
     if (!process.env.X_BEARER_TOKEN) { res.sendStatus(503); return; }
     try {
       const photo = (await load()).find(photo => photo.id === req.params.id);
@@ -73,7 +84,7 @@ export function registerChiikawa(app: Express) {
       }
       res.type(type!).send(Buffer.concat(chunks));
     } catch { res.sendStatus(502); }
-  });
+  }));
 }
 
 export function parseChiikawaPostUrl(value: unknown): { id: string; photoIndex?: number } | null {
@@ -92,7 +103,10 @@ class PublicPostError extends Error {
   constructor(status: number, message: string) { super(message); this.status = status; }
 }
 async function readLimited(response: Response, limit: number): Promise<Buffer> {
-  if (Number(response.headers.get('content-length')) > limit) throw new Error('Response too large');
+  if (Number(response.headers.get('content-length')) > limit) {
+    await response.body?.cancel().catch(() => {});
+    throw new Error('Response too large');
+  }
   const reader = response.body?.getReader(); if (!reader) throw new Error('Empty response');
   const parts: Uint8Array[] = []; let length = 0;
   try {
@@ -106,7 +120,8 @@ async function readLimited(response: Response, limit: number): Promise<Buffer> {
 
 // Public embed data for a user-selected post. This does not enumerate a timeline,
 // use a developer key, or access private/login-only content.
-function registerPublicChiikawa(app: Express) {
+type ImageHandler = (req: HttpRequest, res: HttpResponse) => Promise<void>;
+function registerPublicChiikawa(app: Express, boundedImage: (handler: ImageHandler) => ImageHandler) {
   type Post = { photos: { url: string; view: PublicPhoto }[]; expires: number };
   const cache = new Map<string, Post>();
   const pending = new Map<string, Promise<Post>>();
@@ -153,7 +168,7 @@ function registerPublicChiikawa(app: Express) {
       res.set('Cache-Control', 'no-store').json({ photos, selectedIndex: parsed.photoIndex });
     } catch (error) { fail(res, error); }
   });
-  app.get('/api/chiikawa/public-image/:postId/:index', async (req, res) => {
+  app.get('/api/chiikawa/public-image/:postId/:index', boundedImage(async (req, res) => {
     if (!/^\d{10,25}$/.test(req.params.postId) || !/^[0-3]$/.test(req.params.index)) { res.sendStatus(400); return; }
     try {
       const post = await loadPost(req.params.postId);
@@ -165,5 +180,5 @@ function registerPublicChiikawa(app: Express) {
       const data = await readLimited(response, 12 * 1024 * 1024);
       res.set('Cache-Control', 'private, max-age=300').set('X-Content-Type-Options', 'nosniff').type(type!).send(data);
     } catch (error) { fail(res, error); }
-  });
+  }));
 }

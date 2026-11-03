@@ -45,6 +45,7 @@ export function LocalSmartSearchModal({ isOpen, onClose, targetLanguageCode }: L
     // 팝업 차단을 피하기 위해 클릭 즉시 새 창을 엽니다.
     const newWindow = window.open('', '_blank');
     if (newWindow) {
+      newWindow.opener = null;
       const styles = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
         .map(s => s.outerHTML)
         .join('\n');

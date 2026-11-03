@@ -43,7 +43,7 @@ async function fetchWithBackoff(fn: () => Promise<any>, retries = 3, delayMs = 1
     } catch (e: any) {
       const isRateLimitOrOverload = e?.status === 429 || e?.status === 503 || e?.message?.includes("429") || e?.message?.includes("503") || e?.message?.includes("Timeout");
       if (i === retries - 1 || !isRateLimitOrOverload) throw e;
-      console.warn(`API Error [${e.status || e.message}], retrying in ${delayMs}ms (attempt ${i + 1}/${retries})...`);
+      console.warn(`API Error [${Number(e?.status) || "timeout"}], retrying in ${delayMs}ms (attempt ${i + 1}/${retries})...`);
       await new Promise(resolve => setTimeout(resolve, delayMs));
       delayMs *= 2;
     }
@@ -54,7 +54,7 @@ async function startServer() {
   const app = express();
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
   const server = http.createServer(app);
-  const wss = new WebSocketServer({ noServer: true, maxPayload: 50 * 1024 * 1024, perMessageDeflate: false });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: 2 * 1024 * 1024, perMessageDeflate: false });
   registerVoiceComparison(server, wss, {
     productionVoice: createVoiceServer({ guide: async (turn, translation, signal) => {
       const response = await getAi().models.generateContent(pronunciationRequest(turn, translation, signal));
@@ -70,7 +70,8 @@ async function startServer() {
   const sessions = new Map<WebSocket, any>();
 
   wss.on("connection", (clientWs, req) => {
-    if (wss.clients.size > 256) { clientWs.close(1013, 'BUSY'); return; }
+    // Invalid frames are connection errors; never let one terminate the server process.
+    clientWs.on('error', () => clientWs.terminate());
     let pending = 0;
     let windowStart = Date.now(), messageCount = 0;
     const idle = setTimeout(() => clientWs.close(1008, 'AUTH_REQUIRED'), 15000);
@@ -83,11 +84,11 @@ async function startServer() {
       let msg: any;
       try {
         msg = JSON.parse(data.toString());
-      } catch(e) {
-        return;
+      } catch {
+        clientWs.close(1007, 'INVALID_MESSAGE'); return;
       }
 
-      if (!msg || !['process_audio', 'process_text'].includes(msg.type)) return;
+      if (!msg || !['process_audio', 'process_text'].includes(msg.type)) { clientWs.close(1008, 'INVALID_MESSAGE'); return; }
       if (Date.now() - windowStart >= 60000) { windowStart = Date.now(); messageCount = 0; }
       if (pending >= 8 || ++messageCount > 120) { clientWs.close(1008, 'TOO_MANY_REQUESTS'); return; }
       pending++;
@@ -110,7 +111,7 @@ async function startServer() {
             generate: request => fetchWithBackoff(() => getAi().models.generateContentStream(request)),
             send: event => { if (clientWs.readyState === WebSocket.OPEN) clientWs.send(JSON.stringify(event)); },
           });
-        }).catch(e => console.error("Process Audio Promise Error", e)).finally(() => { pending--; });
+        }).catch(e => console.error("Process Audio Promise Error")).finally(() => { pending--; });
       } else if (msg.type === "process_text") {
         state.processPromise = state.processPromise.then(async () => {
           if (clientWs.readyState !== WebSocket.OPEN) return;
@@ -237,7 +238,7 @@ Pronunciation Guide Rules:
                   }
                 }
               } catch (e: any) {
-                console.error("TTS Gen Error:", e);
+                console.error("TTS Gen Error:");
               }
             });
           };
@@ -316,17 +317,17 @@ Pronunciation Guide Rules:
                    clientWs.send(JSON.stringify({ role, originalTranscription: finalTranscription, correctedTranscription: corrected }));
                  }
                } catch (e) {
-                 console.error("Typo correction error:", e);
+                 console.error("Typo correction error:");
                }
              };
              fixTyposAsync();
           }
 
         } catch (e: any) {
-          console.error("Pipeline Error:", e);
-          clientWs.send(JSON.stringify({ error: e.message, role, turnComplete: true }));
+          console.error("Pipeline Error:");
+          clientWs.send(JSON.stringify({ error: "TRANSLATION_FAILED", role, turnComplete: true }));
         }
-      }).catch(e => console.error("Process Promise Error", e)).finally(() => { pending--; });
+      }).catch(e => console.error("Process Promise Error")).finally(() => { pending--; });
     }
     });
 
@@ -338,15 +339,16 @@ Pronunciation Guide Rules:
   registerChessComparison(app);
   registerChiikawa(app);
   app.use(cors());
-  app.use(['/api/translate-image', '/api/tts', '/api/smart-search'], requireUser);
-  app.use(express.json({ limit: "50mb" }));
+  // Only registered paid handlers accept JSON, after authentication. Leave unrelated requests unparsed.
+  const imageJson = express.json({ limit: '50mb' });
+  const textJson = express.json({ limit: '256kb' });
 
   // API Health route
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
   });
 
-  app.post("/api/translate-image", async (req, res) => {
+  app.post("/api/translate-image", requireUser, imageJson, async (req, res) => {
     try {
       const { imageParams, targetLang } = req.body; 
       const ai = getAi();
@@ -500,18 +502,18 @@ Return a strict JSON object with this exact structure:
             const parsed = JSON.parse(text);
             return res.json(parsed);
           } catch (parseError) {
-            console.error("JSON Parse Error. Raw response was:", text);
+            console.warn("Invalid image translation response");
             throw parseError;
           }
       }
       res.status(500).json({ error: "Failed to process image" });
     } catch(e: any) {
-        console.error("Image Translate Error", e);
-        res.status(500).json({ error: e?.message || "Unknown error" });
+        console.error("Image Translate Error");
+        res.status(502).json({ error: "번역 서비스에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요." });
     }
   });
 
-  app.post("/api/tts", async (req, res) => {
+  app.post("/api/tts", requireUser, textJson, async (req, res) => {
     try {
       const { text } = req.body;
       const ai = getAi();
@@ -540,12 +542,12 @@ Return a strict JSON object with this exact structure:
       }
       res.status(500).json({ error: "No audio generated" });
     } catch (e: any) {
-      console.error("TTS Error:", e);
-      res.status(500).json({ error: e.message });
+      console.error("TTS Error:");
+      res.status(502).json({ error: "음성을 생성하지 못했습니다. 잠시 후 다시 시도해 주세요." });
     }
   });
 
-  app.post("/api/smart-search", async (req, res) => {
+  app.post("/api/smart-search", requireUser, textJson, async (req, res) => {
     try {
       const { category, targetLanguage } = req.body;
       const ai = getAi();
@@ -581,10 +583,18 @@ Return a strict JSON object with this exact structure:
       }
       res.status(500).json({ error: "Failed to generate search keyword" });
     } catch(e: any) {
-        console.error("Smart Search Error", e);
-        res.status(500).json({ error: e?.message || "Unknown error" });
+        console.error("Smart Search Error");
+        res.status(502).json({ error: "번역 서비스에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요." });
     }
   });
+
+  const apiError: express.ErrorRequestHandler = (err, _req, res, next) => {
+    if (res.headersSent) { next(err); return; }
+    const status = Number.isInteger(err?.status) && err.status >= 400 && err.status < 500 ? err.status : 500;
+    res.status(status).json({ error: status === 413 ? '요청이 너무 큽니다.' : '요청을 처리할 수 없습니다.' });
+  };
+  app.use('/api', apiError);
+  app.use('/api', (_req, res) => { res.sendStatus(404); });
 
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
@@ -603,7 +613,8 @@ Return a strict JSON object with this exact structure:
   }
 
   server.listen(PORT, "0.0.0.0", () => {
-    console.log(`Server running on port ${PORT}`);
+    const address = server.address();
+    console.log(`Server running on port ${typeof address === "object" ? address?.port : PORT}`);
   });
 }
 
