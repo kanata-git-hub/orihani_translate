@@ -98,7 +98,8 @@ test('availability check is generation-free; provider failures do not expose err
 
 test('only new routes are wired; owner auth and legacy voice modules remain independent', () => {
   const server = readFileSync(new URL('../server.ts', import.meta.url), 'utf8');
-  assert.ok(server.indexOf('registerChessComparison(app)') < server.indexOf('app.use(express.json'));
+  assert.ok(server.includes('registerChessComparison(app)'));
+  assert.doesNotMatch(server, /app\.use\(express\.json/);
   const app = readFileSync(new URL('../src/App.tsx', import.meta.url), 'utf8');
   assert.ok(app.includes('lazy(() => import(\'./pages/ChessComparison\'))'));
   assert.ok(app.includes('/app/voice-compare')); assert.ok(app.includes('/app/chess-compare'));
